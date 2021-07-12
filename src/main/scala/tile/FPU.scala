@@ -681,7 +681,7 @@ class FPU(cfg: FPUParams)(implicit p: Parameters) extends FPUModule()(p) {
   val io = new FPUIO
 
   val useClockGating = coreParams match {
-    case r: RocketCoreParams => r.clockGate
+    case r: RocketCoreParams => r.clockGate // care about the power
     case _ => false
   }
   val clock_en_reg = Reg(Bool())

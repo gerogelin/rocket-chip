@@ -38,7 +38,7 @@ case class ICacheParams(
 }
 
 trait HasL1ICacheParameters extends HasL1CacheParameters with HasCoreParameters {
-  val cacheParams = tileParams.icache.get
+  val cacheParams = tileParams.icache.get // init the parameter in HasL1CacheParameters
 }
 
 class ICacheReq(implicit p: Parameters) extends CoreBundle()(p) with HasL1ICacheParameters {
@@ -112,6 +112,8 @@ class ICachePerfEvents extends Bundle {
 }
 
 class ICacheBundle(val outer: ICache) extends CoreBundle()(outer.p) {
+  // from frontend inside
+  // data and control signal
   val req = Decoupled(new ICacheReq).flip
   val s1_paddr = UInt(INPUT, paddrBits) // delayed one cycle w.r.t. req
   val s2_vaddr = UInt(INPUT, vaddrBits) // delayed two cycles w.r.t. req
@@ -119,9 +121,11 @@ class ICacheBundle(val outer: ICache) extends CoreBundle()(outer.p) {
   val s2_kill = Bool(INPUT) // delayed two cycles; prevents I$ miss emission
   val s2_prefetch = Bool(INPUT) // should I$ prefetch next line on a miss?
 
+  // to cpu or from cpu
   val resp = Valid(new ICacheResp(outer))
   val invalidate = Bool(INPUT)
 
+  // status
   val errors = new ICacheErrors
   val perf = new ICachePerfEvents().asOutput
 
@@ -283,6 +287,8 @@ class ICacheModule(outer: ICache) extends LazyModuleImp(outer)
     def row(addr: UInt) = addr(untagBits-1, blockOffBits-log2Ceil(refillCycles))
     val s0_ren = (s0_valid && wordMatch(s0_vaddr)) || (s0_slaveValid && wordMatch(s0_slaveAddr))
     val wen = (refill_one_beat && !invalidated) || (s3_slaveValid && wordMatch(s1s3_slaveAddr))
+    // see lowRISC/rocket-chip have this in it and revert on new rocketchip
+    // && lineInScratchpad(scratchpadLine(s1s3_slaveAddr))
     val mem_idx = Mux(refill_one_beat, (refill_idx << log2Ceil(refillCycles)) | refill_cnt,
                   Mux(s3_slaveValid, row(s1s3_slaveAddr),
                   Mux(s0_slaveValid, row(s0_slaveAddr),

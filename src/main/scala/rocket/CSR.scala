@@ -50,6 +50,7 @@ class MStatus extends Bundle {
   val uie = Bool()
 }
 
+// debug related csr
 class DCSR extends Bundle {
   val xdebugver = UInt(width = 2)
   val zero4 = UInt(width=2)
@@ -67,6 +68,7 @@ class DCSR extends Bundle {
   val prv = UInt(width = PRV.SZ)
 }
 
+// machine interrupt pending
 class MIP(implicit p: Parameters) extends CoreBundle()(p)
     with HasCoreParameters {
   val lip = Vec(coreParams.nLocalInterrupts, Bool())
@@ -74,10 +76,10 @@ class MIP(implicit p: Parameters) extends CoreBundle()(p)
   val debug = Bool() // keep in sync with CSR.debugIntCause
   val zero1 = Bool()
   val rocc = Bool()
-  val meip = Bool()
-  val heip = Bool()
-  val seip = Bool()
-  val ueip = Bool()
+  val meip = Bool() // machine
+  val heip = Bool() // hypervisor
+  val seip = Bool() // supervisor
+  val ueip = Bool() // user
   val mtip = Bool()
   val htip = Bool()
   val stip = Bool()
@@ -88,6 +90,8 @@ class MIP(implicit p: Parameters) extends CoreBundle()(p)
   val usip = Bool()
 }
 
+// supervisor address translation and protection
+// page table basic register
 class PTBR(implicit p: Parameters) extends CoreBundle()(p) {
   def additionalPgLevels = mode.extract(log2Ceil(pgLevels-minPgLevels+1)-1, 0)
   def pgLevelsToMode(i: Int) = (xLen, i) match {
@@ -101,8 +105,8 @@ class PTBR(implicit p: Parameters) extends CoreBundle()(p) {
   require(modeBits + maxASIdBits + maxPAddrBits - pgIdxBits == xLen)
 
   val mode = UInt(width = modeBits)
-  val asid = UInt(width = maxASIdBits)
-  val ppn = UInt(width = maxPAddrBits - pgIdxBits)
+  val asid = UInt(width = maxASIdBits) // address space identifier
+  val ppn = UInt(width = maxPAddrBits - pgIdxBits) // physical page number
 }
 
 object PRV
@@ -119,10 +123,10 @@ object CSR
   // commands
   val SZ = 3
   def X = BitPat.dontCare(SZ)
-  def N = UInt(0,SZ)
-  def R = UInt(2,SZ)
-  def I = UInt(4,SZ)
-  def W = UInt(5,SZ)
+  def N = UInt(0,SZ) // not CSR command
+  def R = UInt(2,SZ) // read
+  def I = UInt(4,SZ) // instrument
+  def W = UInt(5,SZ) // write
   def S = UInt(6,SZ)
   def C = UInt(7,SZ)
 
@@ -150,10 +154,10 @@ object CSR
   val firstMHPCH = CSRs.mhpmcounter3h
   val firstHPM = 3
   val nCtr = 32
-  val nHPM = nCtr - firstHPM
+  val nHPM = nCtr - firstHPM // hardware performance monitor
   val hpmWidth = 40
 
-  val maxPMPs = 16
+  val maxPMPs = 16 // physical memeory protect
 }
 
 class PerfCounterIO(implicit p: Parameters) extends CoreBundle
@@ -206,7 +210,7 @@ class CSRFileIO(implicit p: Parameters) extends CoreBundle
 
   val csr_stall = Bool(OUTPUT)
   val eret = Bool(OUTPUT)
-  val singleStep = Bool(OUTPUT)
+  val singleStep = Bool(OUTPUT) // for debug ???
 
   val status = new MStatus().asOutput
   val ptbr = new PTBR().asOutput
@@ -301,6 +305,8 @@ class VType(implicit p: Parameters) extends CoreBundle {
 }
 
 class CSRFile(
+  // TODO decoded_addr is a hash table
+  // so we can use decoded_addr(addr) to get this address
   perfEventSets: EventSets = new EventSets(Seq()),
   customCSRs: Seq[CustomCSR] = Nil)(implicit p: Parameters)
     extends CoreModule()(p)
@@ -308,6 +314,10 @@ class CSRFile(
   val io = new CSRFileIO {
     val customCSRs = Vec(CSRFile.this.customCSRs.size, new CustomCSRIO).asOutput
   }
+
+  // ==================================
+  // this is the init part
+  // ==================================
 
   val reset_mstatus = Wire(init=new MStatus().fromBits(0))
   reset_mstatus.mpp := PRV.M
@@ -388,7 +398,7 @@ class CSRFile(
   val reg_mepc = Reg(UInt(width = vaddrBitsExtended))
   val reg_mcause = RegInit(0.U(xLen.W))
   val reg_mtval = Reg(UInt(width = vaddrBitsExtended))
-  val reg_mscratch = Reg(Bits(width = xLen))
+  val reg_mscratch = Reg(Bits(width = xLen)) // almost same as the mtvec which save the address of interrupt handler
   val mtvecWidth = paddrBits min xLen
   val reg_mtvec = mtvecInit match {
     case Some(addr) => Reg(init=UInt(addr, mtvecWidth))
@@ -414,7 +424,7 @@ class CSRFile(
   val reg_wfi = withClock(io.ungated_clock) { Reg(init=Bool(false)) }
 
   val reg_fflags = Reg(UInt(width = 5))
-  val reg_frm = Reg(UInt(width = 3))
+  val reg_frm = Reg(UInt(width = 3)) // float-point dynamic rounding mode
   val reg_vconfig = usingVector.option(Reg(new VConfig))
   val reg_vstart = usingVector.option(Reg(UInt(maxVLMax.log2.W)))
   val reg_vxsat = usingVector.option(Reg(Bool()))
@@ -471,8 +481,12 @@ class CSRFile(
   val isaMax = (BigInt(log2Ceil(xLen) - 4) << (xLen-2)) | isaStringToMask(isaString)
   val reg_misa = Reg(init=UInt(isaMax))
   val read_mstatus = io.status.asUInt()(xLen-1,0)
-  val read_mtvec = formTVec(reg_mtvec).padTo(xLen)
-  val read_stvec = formTVec(reg_stvec).sextTo(xLen)
+  val read_mtvec = formTVec(reg_mtvec).padTo(xLen) // unsigned extend which is called pad
+  val read_stvec = formTVec(reg_stvec).sextTo(xLen) // signed extend
+
+  // ====================================
+  //  this this the read part
+  // ====================================
 
   val read_mapping = LinkedHashMap[Int,Bits](
     CSRs.tselect -> reg_tselect,
@@ -606,9 +620,18 @@ class CSRFile(
   // mimpid, marchid, and mvendorid are 0 unless overridden by customCSRs
   Seq(CSRs.mimpid, CSRs.marchid, CSRs.mvendorid).foreach(id => read_mapping.getOrElseUpdate(id, 0.U))
 
+  // actually this is functions directory, which key is addr, value is a function which like
+  // def address_equal(addr):
+  //   addr === k
   val decoded_addr = read_mapping map { case (k, v) => k -> (io.rw.addr === k) }
   val wdata = readModifyWriteCSR(io.rw.cmd, io.rw.rdata, io.rw.wdata)
 
+  // ==================================
+  //   this is a internal logic
+  //   which generate the status from
+  //   the input or make the status
+  //   to the core
+  // ==================================
   val system_insn = io.rw.cmd === CSR.I
   val decode_table = Seq(        SCALL->       List(Y,N,N,N,N,N),
                                  SBREAK->      List(N,Y,N,N,N,N),
@@ -837,6 +860,9 @@ class CSRFile(
     }
   }
 
+  // =======================
+  //   write part
+  // =======================
   val csr_wen = io.rw.cmd.isOneOf(CSR.S, CSR.C, CSR.W)
   io.csrw_counter := Mux(coreParams.haveBasicCounters && csr_wen && (io.rw.addr.inRange(CSRs.mcycle, CSRs.mcycle + CSR.nCtr) || io.rw.addr.inRange(CSRs.mcycleh, CSRs.mcycleh + CSR.nCtr)), UIntToOH(io.rw.addr(log2Ceil(CSR.nCtr+nPerfCounters)-1, 0)), 0.U)
   when (csr_wen) {
@@ -1108,7 +1134,7 @@ class CSRFile(
   def chooseInterrupt(masksIn: Seq[UInt]): (Bool, UInt) = {
     val nonstandard = supported_interrupts.getWidth-1 to 12 by -1
     // MEI, MSI, MTI, SEI, SSI, STI, UEI, USI, UTI
-    val standard = Seq(11, 3, 7, 9, 1, 5, 8, 0, 4)
+    val standard = Seq(11, 3, 7, 9, 1, 5, 8, 0, 4) // external, software, timer interrupt
     val priority = nonstandard ++ standard
     val masks = masksIn.reverse
     val any = masks.flatMap(m => priority.filter(_ < m.getWidth).map(i => m(i))).reduce(_||_)

@@ -21,10 +21,10 @@ class FrontendReq(implicit p: Parameters) extends CoreBundle()(p) {
 }
 
 class FrontendExceptions extends Bundle {
-  val pf = new Bundle {
+  val pf = new Bundle { // page fault
     val inst = Bool()
   }
-  val ae = new Bundle {
+  val ae = new Bundle { // access error
     val inst = Bool()
   }
 }
@@ -81,7 +81,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
   val icache = outer.icache.module
   require(fetchWidth*coreInstBytes == outer.icacheParams.fetchBytes)
 
-  val fq = withReset(reset || io.cpu.req.valid) { Module(new ShiftQueue(new FrontendResp, 5, flow = true)) }
+  val fq = withReset(reset || io.cpu.req.valid) { Module(new ShiftQueue(new FrontendResp, 5, flow = true)) } // this is that queue to output command to next stage
 
   val clock_en_reg = Reg(Bool())
   val clock_en = clock_en_reg || io.cpu.might_request
@@ -112,7 +112,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
   val s2_btb_resp_bits = Reg(new BTBResp)
   val s2_btb_taken = s2_btb_resp_valid && s2_btb_resp_bits.taken
   val s2_tlb_resp = Reg(tlb.io.resp)
-  val s2_xcpt = s2_tlb_resp.ae.inst || s2_tlb_resp.pf.inst
+  val s2_xcpt = s2_tlb_resp.ae.inst || s2_tlb_resp.pf.inst // except include access error(ae) and prefetch(pf) ???
   val s2_speculative = Reg(init=Bool(false))
   val s2_partial_insn_valid = RegInit(false.B)
   val s2_partial_insn = Reg(UInt(width = coreInstBits))
@@ -123,8 +123,8 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
   val predicted_npc = Wire(init = ntpc)
   val predicted_taken = Wire(init = Bool(false))
 
-  val s2_replay = Wire(Bool())
-  s2_replay := (s2_valid && !fq.io.enq.fire()) || RegNext(s2_replay && !s0_valid, true.B)
+  val s2_replay = Wire(Bool()) // replay means that the pipeline need to stall and re-execute the pervious commands
+  s2_replay := (s2_valid && !fq.io.enq.fire()) || RegNext(s2_replay && !s0_valid, true.B) // queue is full, then replay,
   val npc = Mux(s2_replay, s2_pc, predicted_npc)
 
   s1_pc := io.cpu.npc
@@ -146,16 +146,16 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
 
   io.ptw <> tlb.io.ptw
   tlb.io.req.valid := s1_valid && !s2_replay
-  tlb.io.req.bits.vaddr := s1_pc
+  tlb.io.req.bits.vaddr := s1_pc // connect the pc to the TLB's input to make the va to pa convert
   tlb.io.req.bits.passthrough := Bool(false)
   tlb.io.req.bits.size := log2Ceil(coreInstBytes*fetchWidth)
   tlb.io.sfence := io.cpu.sfence
   tlb.io.kill := !s2_valid
 
   icache.io.req.valid := s0_valid
-  icache.io.req.bits.addr := io.cpu.npc
+  icache.io.req.bits.addr := io.cpu.npc // pc as addresss again
   icache.io.invalidate := io.cpu.flush_icache
-  icache.io.s1_paddr := tlb.io.resp.paddr
+  icache.io.s1_paddr := tlb.io.resp.paddr // connect the TLB output to icache input
   icache.io.s2_vaddr := s2_pc
   icache.io.s1_kill := s2_redirect || tlb.io.resp.miss || s2_replay
   val s2_can_speculatively_refill = s2_tlb_resp.cacheable && !io.ptw.customCSRs.asInstanceOf[RocketCustomCSRs].disableSpeculativeICacheRefill
@@ -166,7 +166,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
   fq.io.enq.bits.pc := s2_pc
   io.cpu.npc := alignPC(Mux(io.cpu.req.valid, io.cpu.req.bits.pc, npc))
 
-  fq.io.enq.bits.data := icache.io.resp.bits.data
+  fq.io.enq.bits.data := icache.io.resp.bits.data // IQ data is from ICache
   fq.io.enq.bits.mask := UInt((1 << fetchWidth)-1) << s2_pc.extract(log2Ceil(fetchWidth)+log2Ceil(coreInstBytes)-1, log2Ceil(coreInstBytes))
   fq.io.enq.bits.replay := icache.io.resp.bits.replay || icache.io.s2_kill && !icache.io.resp.valid && !s2_xcpt
   fq.io.enq.bits.btb := s2_btb_resp_bits
@@ -322,7 +322,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
     when (io.cpu.req.valid) { wrong_path := false }
   }
 
-  io.cpu.resp <> fq.io.deq
+  io.cpu.resp <> fq.io.deq // connect the IQ to outside(cpu pipeline)
 
   // performance events
   io.cpu.perf := icache.io.perf
@@ -348,7 +348,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
 trait HasICacheFrontend extends CanHavePTW { this: BaseTile =>
   val module: HasICacheFrontendModule
   val frontend = LazyModule(new Frontend(tileParams.icache.get, staticIdForMetadataUseOnly))
-  tlMasterXbar.node := frontend.masterNode
+  tlMasterXbar.node := frontend.masterNode // connect the ICache to TL network
   connectTLSlave(frontend.slaveNode, tileParams.core.fetchBytes)
   frontend.icache.hartIdSinkNodeOpt.foreach { _ := hartIdNexusNode }
   frontend.icache.mmioAddressPrefixSinkNodeOpt.foreach { _ := mmioAddressPrefixNexusNode }

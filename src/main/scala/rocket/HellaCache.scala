@@ -140,9 +140,9 @@ class AlignmentExceptions extends Bundle {
 }
 
 class HellaCacheExceptions extends Bundle {
-  val ma = new AlignmentExceptions
-  val pf = new AlignmentExceptions
-  val ae = new AlignmentExceptions
+  val ma = new AlignmentExceptions // misalign
+  val pf = new AlignmentExceptions // page fault
+  val ae = new AlignmentExceptions // access error
 }
 
 class HellaCacheWriteData(implicit p: Parameters) extends CoreBundle()(p) with HasCoreData
@@ -244,12 +244,14 @@ class HellaCacheModule(outer: HellaCache) extends LazyModuleImp(outer)
 }
 
 /** Support overriding which HellaCache is instantiated */
+// current offically doesn't provide other method to instantiated
 
 case object BuildHellaCache extends Field[BaseTile => Parameters => HellaCache](HellaCacheFactory.apply)
 
 object HellaCacheFactory {
   def apply(tile: BaseTile)(p: Parameters): HellaCache = {
-    if (tile.tileParams.dcache.get.nMSHRs == 0)
+    // for most cases, we make the MSHR = 0, so the DCache is more general usage
+    if (tile.tileParams.dcache.get.nMSHRs == 0) // miss status holding registers
       new DCache(tile.staticIdForMetadataUseOnly, tile.crossing)(p)
     else
       new NonBlockingDCache(tile.staticIdForMetadataUseOnly)(p)
@@ -262,6 +264,11 @@ trait HasHellaCache { this: BaseTile =>
   val module: HasHellaCacheModule
   implicit val p: Parameters
   var nDCachePorts = 0
+  // here the real cache ram
+  // in here, the p(BuildHellaCache) is a function which input is basetile and parameters then output the hellacache
+  // and the most important is that the default function is the HellaCacheFactory.apply
+  // see the Field for detail
+  // if the BuildHellaCache is not define in the Config, than use the default HellaCacheFactory.apply to generate the dcache
   lazy val dcache: HellaCache = LazyModule(p(BuildHellaCache)(this)(p))
 
   tlMasterXbar.node := dcache.node
@@ -274,7 +281,9 @@ trait HasHellaCacheModule {
   implicit val p: Parameters
   val dcachePorts = ListBuffer[HellaCacheIO]()
   val dcacheArb = Module(new HellaCacheArbiter(outer.nDCachePorts)(outer.p))
-  outer.dcache.module.io.cpu <> dcacheArb.io.mem
+  // directiion dcacheArb.io.mem -> outer.dcache.module.io.cpu
+  // the cache is in the outer
+  outer.dcache.module.io.cpu <> dcacheArb.io.mem // when using the multiply, make a arbitrary for the dcache
 }
 
 /** Metadata array used for all HellaCaches */

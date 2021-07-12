@@ -29,6 +29,9 @@ class JtagDTMKeyDefault extends JtagDTMConfig(
   idcodeVersion = 0,
   idcodePartNum = 0,
   idcodeManufId = 0,
+  // WTF
+  // guess
+  // Fuck you
   debugIdleCycles = 5) // Reasonable guess for synchronization.
 
 object dtmJTAGAddrs {
@@ -73,6 +76,7 @@ class SystemJTAGIO extends Bundle {
   val version = Input(UInt(4.W))
 }
 
+// here really create the FSM of DTM for JTAG
 // Use the Chisel Name macro due to the bulk of this being inside a withClockAndReset block
 @chiselName
 class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
@@ -256,6 +260,8 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
   idcode.partNumber := io.jtag_part_number
   idcode.mfrId      := io.jtag_mfr_id
 
+  // tapIO is JtagBlockIO
+  // seperate different command to different path
   val tapIO = JtagTapGenerator(irLength = 5,
     instructions = Map(
       dtmJTAGAddrs.DMI_ACCESS -> dmiAccessChain,

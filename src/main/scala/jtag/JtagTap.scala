@@ -54,6 +54,7 @@ class JtagControllerIO(irLength: Int) extends JtagBlockIO(irLength, false) {
   override def cloneType = new JtagControllerIO(irLength).asInstanceOf[this.type]
 }
 
+// outer JTAG controller
 /** JTAG TAP controller internal block, responsible for instruction decode and data register chain
   * control signal generation.
   *

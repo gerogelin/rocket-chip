@@ -101,6 +101,7 @@ class RocketCustomCSRs(implicit p: Parameters) extends CustomCSRs with HasRocket
   override def decls = super.decls :+ marchid :+ mvendorid :+ mimpid
 }
 
+// the 5 stages core here
 @chiselName
 class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     with HasRocketCoreParameters
@@ -182,13 +183,15 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     Seq(new IDecode)
   } flatMap(_.table)
 
+  // this IntCtrlSigs class is very important concept which
+  // help us to understand the pipeline
   val ex_ctrl = Reg(new IntCtrlSigs)
   val mem_ctrl = Reg(new IntCtrlSigs)
   val wb_ctrl = Reg(new IntCtrlSigs)
 
-  val ex_reg_xcpt_interrupt  = Reg(Bool())
+  val ex_reg_xcpt_interrupt  = Reg(Bool()) // except interrupt
   val ex_reg_valid           = Reg(Bool())
-  val ex_reg_rvc             = Reg(Bool())
+  val ex_reg_rvc             = Reg(Bool()) // riscv compress command
   val ex_reg_btb_resp        = Reg(new BTBResp)
   val ex_reg_xcpt            = Reg(Bool())
   val ex_reg_flush_pipe      = Reg(Bool())
@@ -250,13 +253,13 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val id_expanded_inst = ibuf.io.inst.map(_.bits.inst)
   val id_raw_inst = ibuf.io.inst.map(_.bits.raw)
   val id_inst = id_expanded_inst.map(_.bits)
-  ibuf.io.imem <> io.imem.resp
+  ibuf.io.imem <> io.imem.resp // connect the frontend IQ to IBuf
   ibuf.io.kill := take_pc
 
   require(decodeWidth == 1 /* TODO */ && retireWidth == decodeWidth)
   require(!(coreParams.useRVE && coreParams.fpu.nonEmpty), "Can't select both RVE and floating-point")
   val id_ctrl = Wire(new IntCtrlSigs()).decode(id_inst(0), decode_table)
-  val lgNXRegs = if (coreParams.useRVE) 4 else 5
+  val lgNXRegs = if (coreParams.useRVE) 4 else 5 // Embedded, 16 GPRs or 32 GPRs
   val regAddrMask = (1 << lgNXRegs) - 1
 
   def decodeReg(x: UInt) = (x.extract(x.getWidth-1, lgNXRegs).asBool, x(lgNXRegs-1, 0))
@@ -269,8 +272,8 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val id_reg_fence = Reg(init=Bool(false))
   val id_ren = IndexedSeq(id_ctrl.rxs1, id_ctrl.rxs2)
   val id_raddr = IndexedSeq(id_raddr1, id_raddr2)
-  val rf = new RegFile(regAddrMask, xLen)
-  val id_rs = id_raddr.map(rf.read _)
+  val rf = new RegFile(regAddrMask, xLen) // the GPRs (General Purpose Register)
+  val id_rs = id_raddr.map(rf.read _) // read the source register from the register file, totally 2
   val ctrl_killd = Wire(Bool())
   val id_npc = (ibuf.io.pc.asSInt + ImmGen(IMM_UJ, id_inst(0))).asUInt
 
@@ -282,6 +285,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val id_sfence = id_ctrl.mem && id_ctrl.mem_cmd === M_SFENCE
   val id_csr_flush = id_sfence || id_system_insn || (id_csr_en && !id_csr_ren && csr.io.decode(0).write_flush)
 
+  // scie means Simple Custom Instrument Extend
   val id_scie_decoder = if (!rocketParams.useSCIE) Wire(new SCIEDecoderInterface) else {
     val d = Module(new SCIEDecoder)
     assert(PopCount(d.io.unpipelined :: d.io.pipelined :: d.io.multicycle :: Nil) <= 1)
@@ -369,14 +373,20 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val ex_rs = for (i <- 0 until id_raddr.size)
     yield Mux(ex_reg_rs_bypass(i), bypass_mux(ex_reg_rs_lsb(i)), Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)))
   val ex_imm = ImmGen(ex_ctrl.sel_imm, ex_reg_inst)
-  val ex_op1 = MuxLookup(ex_ctrl.sel_alu1, SInt(0), Seq(
+  // set the ALU input
+  // from register
+  // pc related calcuate
+  // immediate number
+  val ex_op1 = MuxLookup(ex_ctrl.sel_alu1, SInt(0), Seq( // operand 1
     A1_RS1 -> ex_rs(0).asSInt,
     A1_PC -> ex_reg_pc.asSInt))
-  val ex_op2 = MuxLookup(ex_ctrl.sel_alu2, SInt(0), Seq(
+  val ex_op2 = MuxLookup(ex_ctrl.sel_alu2, SInt(0), Seq( // operand 2
     A2_RS2 -> ex_rs(1).asSInt,
     A2_IMM -> ex_imm,
     A2_SIZE -> Mux(ex_reg_rvc, SInt(2), SInt(4))))
 
+  // new a ALU module
+  // and connect the control signal to the it
   val alu = Module(new ALU)
   alu.io.dw := ex_ctrl.alu_dw
   alu.io.fn := ex_ctrl.alu_fn
@@ -420,8 +430,10 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   ex_reg_xcpt := !ctrl_killd && id_xcpt
   ex_reg_xcpt_interrupt := !take_pc && ibuf.io.inst(0).valid && csr.io.interrupt
 
+  // main control of the execute stage
+  // also connect the decode stage data to this stage
   when (!ctrl_killd) {
-    ex_ctrl := id_ctrl
+    ex_ctrl := id_ctrl // control signal move to next stage
     ex_reg_rvc := ibuf.io.inst(0).bits.rvc
     ex_ctrl.csr := id_csr
     ex_scie_unpipelined := id_ctrl.scie && id_scie_decoder.unpipelined
@@ -474,7 +486,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   }
   when (!ctrl_killd || csr.io.interrupt || ibuf.io.inst(0).bits.replay) {
     ex_reg_cause := id_cause
-    ex_reg_inst := id_inst(0)
+    ex_reg_inst := id_inst(0) // connect ID -> EX
     ex_reg_raw_inst := id_raw_inst(0)
     ex_reg_pc := ibuf.io.pc
     ex_reg_btb_resp := ibuf.io.btb_resp
@@ -511,7 +523,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     Mux(ibuf.io.inst(0).valid || ibuf.io.imem.valid, mem_npc =/= ibuf.io.pc, Bool(true)))
   val mem_npc_misaligned = !csr.io.status.isa('c'-'a') && mem_npc(1) && !mem_reg_sfence
   val mem_int_wdata = Mux(!mem_reg_xcpt && (mem_ctrl.jalr ^ mem_npc_misaligned), mem_br_target, mem_reg_wdata.asSInt).asUInt
-  val mem_cfi = mem_ctrl.branch || mem_ctrl.jalr || mem_ctrl.jal
+  val mem_cfi = mem_ctrl.branch || mem_ctrl.jalr || mem_ctrl.jal // cfi abbreviation for Control Flow Instrument
   val mem_cfi_taken = (mem_ctrl.branch && mem_br_taken) || mem_ctrl.jalr || mem_ctrl.jal
   val mem_direction_misprediction = mem_ctrl.branch && mem_br_taken =/= (usingBTB && mem_reg_btb_resp.taken)
   val mem_misprediction = if (usingBTB) mem_wrong_npc else mem_cfi_taken
@@ -527,7 +539,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   when (mem_reg_valid && mem_reg_flush_pipe) {
     mem_reg_sfence := false
   }.elsewhen (ex_pc_valid) {
-    mem_ctrl := ex_ctrl
+    mem_ctrl := ex_ctrl // control signal move to next stage
     mem_scie_unpipelined := ex_scie_unpipelined
     mem_scie_pipelined := ex_scie_pipelined
     mem_reg_rvc := ex_reg_rvc
@@ -544,7 +556,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     mem_reg_raw_inst := ex_reg_raw_inst
     mem_reg_mem_size := ex_reg_mem_size
     mem_reg_pc := ex_reg_pc
-    mem_reg_wdata := Mux(ex_scie_unpipelined, ex_scie_unpipelined_wdata, alu.io.out)
+    mem_reg_wdata := Mux(ex_scie_unpipelined, ex_scie_unpipelined_wdata, alu.io.out) // to the next stage, output the ALU out to the mem stage
     mem_br_taken := alu.io.cmp_out
 
     when (ex_ctrl.rxs2 && (ex_ctrl.mem || ex_ctrl.rocc || ex_sfence)) {
@@ -589,7 +601,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   wb_reg_xcpt := mem_xcpt && !take_pc_wb
   wb_reg_flush_pipe := !ctrl_killm && mem_reg_flush_pipe
   when (mem_pc_valid) {
-    wb_ctrl := mem_ctrl
+    wb_ctrl := mem_ctrl // ctrl signal move to next stage
     wb_reg_sfence := mem_reg_sfence
     wb_reg_wdata := Mux(mem_scie_pipelined, mem_scie_pipelined_wdata,
       Mux(!mem_reg_xcpt && mem_ctrl.fp && mem_ctrl.wxd, io.fpu.toint_data, mem_int_wdata))
@@ -664,8 +676,14 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
 
   val wb_valid = wb_reg_valid && !replay_wb && !wb_xcpt
   val wb_wen = wb_valid && wb_ctrl.wxd
-  val rf_wen = wb_wen || ll_wen
+  val rf_wen = wb_wen || ll_wen // rf for register file, ll for Long Lantency
   val rf_waddr = Mux(ll_wen, ll_waddr, wb_waddr)
+  // if from dcache, use the dcache value
+  // if is long lantency write, use the long lantency responsed data
+  // if it's a csr command, using the read data from csr
+  // if it's the multiply command, using the multiply output
+  // otherwise using the ALU output as the output
+  // here the dcache sometime response with the wrong data!!!!
   val rf_wdata = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.data(xLen-1, 0),
                  Mux(ll_wen, ll_wdata,
                  Mux(wb_ctrl.csr =/= CSR.N, csr.io.rw.rdata,
@@ -687,7 +705,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   io.fpu.time := csr.io.time(31,0)
   io.fpu.hartid := io.hartid
   csr.io.rocc_interrupt := io.rocc.interrupt
-  csr.io.pc := wb_reg_pc
+  csr.io.pc := wb_reg_pc // the pc in csr is the wb stage PC(this is the pc for the real debug usage)
   val tval_valid = wb_xcpt && wb_cause.isOneOf(Causes.illegal_instruction, Causes.breakpoint,
     Causes.misaligned_load, Causes.misaligned_store,
     Causes.load_access, Causes.store_access, Causes.fetch_access,
@@ -778,6 +796,17 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     io.traceStall
   ctrl_killd := !ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld || csr.io.interrupt
 
+  // ============================================
+  //   above is the 5 stage core main implment
+  //   ----------------------------------------
+  //   below is the assist component connection
+  //   like: dcache = dmem
+  //         icache = imem
+  //         fpu = float point unit
+  //         rocc = accerlator or other unit
+  //         etc...
+  // ============================================
+
   io.imem.req.valid := take_pc
   io.imem.req.bits.speculative := !take_pc_wb
   io.imem.req.bits.pc :=
@@ -796,7 +825,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   io.imem.sfence.bits.asid := wb_reg_rs2
   io.ptw.sfence := io.imem.sfence
 
-  ibuf.io.inst(0).ready := !ctrl_stalld
+  ibuf.io.inst(0).ready := !ctrl_stalld // not stall means we continue to get instrument
 
   io.imem.btb_update.valid := mem_reg_valid && !take_pc_wb && mem_wrong_npc && (!mem_cfi || mem_cfi_taken)
   io.imem.btb_update.bits.isValid := mem_cfi

@@ -898,6 +898,7 @@ object Causes {
     res.toArray
   }
 }
+// this is the internel location of the CSR register
 object CSRs {
   val fflags = 0x1
   val frm = 0x2

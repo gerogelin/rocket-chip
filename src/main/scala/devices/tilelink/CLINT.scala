@@ -105,10 +105,10 @@ class CLINT(params: CLINTParams, beatBytes: Int)(implicit p: Parameters) extends
 /** Trait that will connect a CLINT to a subsystem */
 trait CanHavePeripheryCLINT { this: BaseSubsystem =>
   val clintOpt = p(CLINTKey).map { params =>
-    val tlbus = locateTLBusWrapper(p(CLINTAttachKey).slaveWhere)
-    val clint = LazyModule(new CLINT(params, cbus.beatBytes))
-    LogicalModuleTree.add(logicalTreeNode, clint.logicalTreeNode)
-    clint.node := tlbus.coupleTo("clint") { TLFragmenter(tlbus) := _ }
-    clint
+    val tlbus = locateTLBusWrapper(p(CLINTAttachKey).slaveWhere) // get the tilelink bus
+    val clint = LazyModule(new CLINT(params, cbus.beatBytes)) // init a new clint module
+    LogicalModuleTree.add(logicalTreeNode, clint.logicalTreeNode) // add the logic tree
+    clint.node := tlbus.coupleTo("clint") { TLFragmenter(tlbus) := _ } // connect clint module to tilelink bus
+    clint // return this clint module with connect
   }
 }

@@ -35,6 +35,10 @@ case object RocketTilesKey extends Field[Seq[RocketTileParams]](Nil)
 case object RocketCrossingKey extends Field[Seq[RocketCrossingParams]](List(RocketCrossingParams()))
 
 trait HasRocketTiles extends HasTiles { this: BaseSubsystem =>
+  // this line actullay do a lot of things include to init the
+  // tile from config, balabala
+  // tiles is from InstantiatesTiles which is the HasTiles trait
+  // to get the tiles, we need firstly init it, balabala
   val rocketTiles = tiles.collect { case r: RocketTile => r }
 
   def coreMonitorBundles = (rocketTiles map { t =>
@@ -42,9 +46,14 @@ trait HasRocketTiles extends HasTiles { this: BaseSubsystem =>
   }).toList
 }
 
+// BaseSubsystem is the bus architecture of the chip
+// HasRocketTiles is just the tile which connect to the bus
+// combine both to create the basic of CPU
 class RocketSubsystem(implicit p: Parameters) extends BaseSubsystem with HasRocketTiles {
+  // this statement is redundant if the ExampleRocketSystem already override it
   override lazy val module = new RocketSubsystemModuleImp(this)
 }
 
+// debug module is connect to HasTilesModuleImp
 class RocketSubsystemModuleImp[+L <: RocketSubsystem](_outer: L) extends BaseSubsystemModuleImp(_outer)
     with HasTilesModuleImp

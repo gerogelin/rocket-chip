@@ -179,7 +179,7 @@ class TLPLIC(params: PLICParams, beatBytes: Int)(implicit p: Parameters) extends
     
     val maxDevs = Reg(Vec(nHarts, UInt(width = log2Ceil(nDevices+1))))
     val pendingUInt = Cat(pending.reverse)
-    for (hart <- 0 until nHarts) {
+    for (hart <- 0 until nHarts) { // this like the generate statement on verilog and systemverilog
       val fanin = Module(new PLICFanIn(nDevices, prioBits))
       fanin.io.prio := priority
       fanin.io.ip   := enableVec(hart) & pendingUInt

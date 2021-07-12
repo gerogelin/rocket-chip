@@ -16,35 +16,36 @@ abstract trait DecodeConstants extends HasCoreParameters
   val table: Array[(BitPat, List[BitPat])]
 }
 
+// this signal just like the MicroOP in Boom
 class IntCtrlSigs extends Bundle {
-  val legal = Bool()
-  val fp = Bool()
-  val rocc = Bool()
-  val branch = Bool()
-  val jal = Bool()
-  val jalr = Bool()
-  val rxs2 = Bool()
-  val rxs1 = Bool()
-  val scie = Bool()
+  val legal = Bool() // legal or illegal
+  val fp = Bool() // is float point cmd or not
+  val rocc = Bool() // is rocc cmd or not
+  val branch = Bool() // branch cmd or not
+  val jal = Bool() // jal cmd or not (jump and link)
+  val jalr = Bool() // jalr cmd or not (jump and link register)
+  val rxs2 = Bool() // use integer register 2
+  val rxs1 = Bool() // use integer register 1
+  val scie = Bool() // simple custom instrument extend
   val sel_alu2 = Bits(width = A2_X.getWidth)
   val sel_alu1 = Bits(width = A1_X.getWidth)
   val sel_imm = Bits(width = IMM_X.getWidth)
   val alu_dw = Bool()
   val alu_fn = Bits(width = FN_X.getWidth)
-  val mem = Bool()
+  val mem = Bool() // memory related command or not, load and store
   val mem_cmd = Bits(width = M_SZ)
-  val rfs1 = Bool()
-  val rfs2 = Bool()
-  val rfs3 = Bool()
-  val wfd = Bool()
-  val mul = Bool()
-  val div = Bool()
-  val wxd = Bool()
+  val rfs1 = Bool() // use float point register 1
+  val rfs2 = Bool() // use float point register 2
+  val rfs3 = Bool() // use float point register 3
+  val wfd = Bool() // write float register or not
+  val mul = Bool() // is multiply cmd or not
+  val div = Bool() // is divide cmd or not
+  val wxd = Bool() // write integer register or not
   val csr = Bits(width = CSR.SZ)
-  val fence_i = Bool()
+  val fence_i = Bool() // fence.i cmd
   val fence = Bool()
-  val amo = Bool()
-  val dp = Bool()
+  val amo = Bool() // AMO cmd
+  val dp = Bool() // is double point or not
 
   def default: List[BitPat] =
                 //           jal                                                             renf1               fence.i

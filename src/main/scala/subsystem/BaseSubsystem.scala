@@ -27,6 +27,7 @@ abstract class BareSubsystem(implicit p: Parameters) extends LazyModule with Bin
   lazy val json = JSON(bindingTree)
 }
 
+// LazyModuleImp actually convert the system using instantiate
 abstract class BareSubsystemModuleImp[+L <: BareSubsystem](_outer: L) extends LazyModuleImp(_outer) {
   val outer = _outer
   ElaborationArtefacts.add("graphml", outer.graphML)
@@ -68,6 +69,8 @@ trait HasConfigurableTLNetworkTopology { this: HasTileLinkLocations =>
   lazy val topManagers = tlBusWrapperLocationMap(p(TLManagerViewpointLocated(location))).unifyManagers
 }
 
+// the bus architecture is from here
+// for different bus architecture, need to modify this
 /** Base Subsystem class with no peripheral devices, ports or cores added yet */
 abstract class BaseSubsystem(val location: HierarchicalLocation = InSubsystem)
                             (implicit p: Parameters)

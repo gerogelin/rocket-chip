@@ -72,8 +72,10 @@ class LazyRoCCModuleImp(outer: LazyRoCC) extends LazyModuleImp(outer) {
 /** Mixins for including RoCC **/
 
 trait HasLazyRoCC extends CanHavePTW { this: BaseTile =>
+  // rocc-base accelerator is mapping here
   val roccs = p(BuildRoCC).map(_(p))
 
+  // connect the ROCC
   roccs.map(_.atlNode).foreach { atl => tlMasterXbar.node :=* atl }
   roccs.map(_.tlNode).foreach { tl => tlOtherMastersNode :=* tl }
 

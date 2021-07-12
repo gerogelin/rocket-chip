@@ -27,6 +27,8 @@ private[freechips] final class RocketChiselStage extends ChiselStage {
 
 class RocketChipStage extends Stage with PreservesAll[Phase] {
 
+  // the rocketchip top and config is pass through RocketChipCli
+  // with some machanism the class is been create than, go through the normal chisel step
   override val shell = new Shell("rocket-chip") with RocketChipCli with ChiselCli with FirrtlCli
   val targets: Seq[PhaseDependency] = Seq(
     Dependency[freechips.rocketchip.stage.phases.Checks],
@@ -39,6 +41,10 @@ class RocketChipStage extends Stage with PreservesAll[Phase] {
     Dependency[freechips.rocketchip.stage.phases.GenerateArtefacts]
   )
 
+  // in normal sequence which generate RTL instead of rocket chip
+  // the Driver class in chisel3 will use this class PhaseManager also
+  // and also the transform, which is transfor the chisel to RTL
+  // App
   private val pm = new PhaseManager(targets)
 
   override def run(annotations: AnnotationSeq): AnnotationSeq = pm.transform(annotations)

@@ -11,6 +11,7 @@ object SCIE {
   val iLen = 32
 }
 
+// SCIE means simple custom instrument extend
 class SCIEDecoderInterface extends Bundle {
   val insn = Input(UInt(SCIE.iLen.W))
   val unpipelined = Output(Bool())

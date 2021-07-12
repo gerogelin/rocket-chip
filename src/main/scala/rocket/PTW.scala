@@ -35,7 +35,7 @@ class TLBPTWIO(implicit p: Parameters) extends CoreBundle()(p)
   val resp = Valid(new PTWResp).flip
   val ptbr = new PTBR().asInput
   val status = new MStatus().asInput
-  val pmp = Vec(nPMPs, new PMP).asInput
+  val pmp = Vec(nPMPs, new PMP).asInput // physical memeory protect
   val customCSRs = coreParams.customCSRs.asInput
 }
 
@@ -60,14 +60,14 @@ class DatapathPTWIO(implicit p: Parameters) extends CoreBundle()(p)
 class PTE(implicit p: Parameters) extends CoreBundle()(p) {
   val ppn = UInt(width = 54)
   val reserved_for_software = Bits(width = 2)
-  val d = Bool()
-  val a = Bool()
-  val g = Bool()
-  val u = Bool()
-  val x = Bool()
-  val w = Bool()
-  val r = Bool()
-  val v = Bool()
+  val d = Bool() // dirty
+  val a = Bool() // accessed
+  val g = Bool() // global page
+  val u = Bool() // user/supervisor
+  val x = Bool() // executable
+  val w = Bool() // writeable
+  val r = Bool() // readable
+  val v = Bool() // verified?
 
   def table(dummy: Int = 0) = v && !r && !w && !x
   def leaf(dummy: Int = 0) = v && (r || (x && !w)) && a
@@ -171,7 +171,7 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
 
   val (pte_cache_hit, pte_cache_data) = {
     val size = 1 << log2Up(pgLevels * 2)
-    val plru = new PseudoLRU(size)
+    val plru = new PseudoLRU(size) // the PTW using the PLRU algorithm to replace while not hit
     val valid = RegInit(0.U(size.W))
     val tags = Reg(Vec(size, UInt(width = paddrBits)))
     val data = Reg(Vec(size, UInt(width = ppnBits)))
@@ -405,7 +405,7 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
 trait CanHavePTW extends HasTileParameters with HasHellaCache { this: BaseTile =>
   val module: CanHavePTWModule
   val utlbOMSRAMs = collection.mutable.ListBuffer[OMSRAM]()
-  var nPTWPorts = 1
+  var nPTWPorts = 1 // we don't use this parameters to control connect to core
   nDCachePorts += usingPTW.toInt
 }
 
@@ -413,7 +413,7 @@ trait CanHavePTWModule extends HasHellaCacheModule {
   val outer: CanHavePTW
   val ptwPorts = ListBuffer(outer.dcache.module.io.ptw)
   val ptw = Module(new PTW(outer.nPTWPorts)(outer.dcache.node.edges.out(0), outer.p))
-  if (outer.usingPTW) {
+  if (outer.usingPTW) { // here usingPTW control the init
     dcachePorts += ptw.io.mem
     outer.utlbOMSRAMs ++= ptw.omSRAMs
   }

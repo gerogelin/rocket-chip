@@ -25,6 +25,8 @@ class PreElaboration extends Phase with PreservesAll[Phase] with HasRocketChipSt
 
     val config = getConfig(rOpts.configNames.get)
 
+    // !!!!!!!!! hi, we get the method to generate the module which WITH config HERE !!!!!!
+    // call like ExampleRocketSystem(DefaultConfig)
     val gen = () =>
       topMod
         .getConstructor(classOf[Parameters])

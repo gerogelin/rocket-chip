@@ -18,6 +18,9 @@ class Instruction(implicit val p: Parameters) extends ParameterizedBundle with H
   require(coreInstBits == (if (usingCompressed) 16 else 32))
 }
 
+// maybe this should be part of frontend
+// put IBUF here in front of the core instead of frontend
+// maybe the consideration is compatible for superscalar
 class IBuf(implicit p: Parameters) extends CoreModule {
   val io = new Bundle {
     val imem = Decoupled(new FrontendResp).flip
@@ -32,7 +35,7 @@ class IBuf(implicit p: Parameters) extends CoreModule {
 
   val n = fetchWidth - 1
   val nBufValid = if (n == 0) UInt(0) else Reg(init=UInt(0, log2Ceil(fetchWidth)))
-  val buf = Reg(io.imem.bits)
+  val buf = Reg(io.imem.bits) // this buffer is only one click register, not other supported elements
   val ibufBTBResp = Reg(new BTBResp)
   val pcWordMask = UInt(coreInstBytes*fetchWidth-1, vaddrBitsExtended)
 

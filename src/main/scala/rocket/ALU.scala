@@ -12,11 +12,11 @@ object ALU
   val SZ_ALU_FN = 4
   def FN_X    = BitPat("b????")
   def FN_ADD  = UInt(0)
-  def FN_SL   = UInt(1)
+  def FN_SL   = UInt(1) // shift left
   def FN_SEQ  = UInt(2)
   def FN_SNE  = UInt(3)
   def FN_XOR  = UInt(4)
-  def FN_SR   = UInt(5)
+  def FN_SR   = UInt(5) // shift right
   def FN_OR   = UInt(6)
   def FN_AND  = UInt(7)
   def FN_SUB  = UInt(10)

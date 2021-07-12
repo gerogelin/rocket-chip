@@ -124,6 +124,8 @@ object CaptureChain {
   def apply[T <: Data](gen: T)(implicit p: Parameters) = new CaptureChain(gen)
 }
 
+// the chapter number is actually from IEEE JTAG standard
+
 /** Simple shift register with parallel capture and update. Useful for general instruction and data
   * scan registers.
   *
@@ -138,8 +140,11 @@ class CaptureUpdateChain[+T <: Data, +V <: Data](genCapture: T, genUpdate: V)(im
   class ModIO extends ChainIO {
     val capture = Capture(genCapture)
     val update = Valid(genUpdate)  // valid high when in update state (single cycle), contents may change any time after
+    //chainIn
+    //chainOut
   }
   val io = IO(new ModIO)
+  // function call statement script format
   io.chainOut chainControlFrom io.chainIn
 
   val captureWidth = DataMirror.widthOf(genCapture) match {
@@ -161,8 +166,22 @@ class CaptureUpdateChain[+T <: Data, +V <: Data](genCapture: T, genUpdate: V)(im
 
   val captureBits = io.capture.bits.asUInt()
 
+  // cover is from freechips.rocketchip.util.property._
+  // actually do nothing
   cover(io.chainIn.capture, "chain_capture", "JTAG;chain_capture; This Chain captured data")
   cover(io.chainIn.capture, "chain_update",  "JTAG;chain_update; This Chain updated data")
+
+  // make the data from parallel to serial
+  //                       |                        |
+  //    chainOut.data <----|--\                     |
+  //                       |  \<-[0].1....n-1 <<-x--|<----- capture.bits[0-(n-1)]
+  //                       |           |         |  |
+  //                       |           \---------|--|<----- chainIn.shift
+  //                       |                     |  |
+  //  capture.capture <----|------------------------|<----- chainIn.capture
+  //                       |                        |
+  //     update.valid <----|------------------------|<----- chainIn.update
+  //                       |                        |
 
   when (io.chainIn.capture) {
     (0 until math.min(n, captureWidth)) map (x => regs(x) := captureBits(x))

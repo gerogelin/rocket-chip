@@ -218,9 +218,9 @@ trait HasTileNotificationSinks { this: LazyModule =>
   */
 trait DefaultTileContextType
   extends Attachable
-  with HasTileInterruptSources
+  with HasTileInterruptSources // this trait connect all other periphery
   with HasTileNotificationSinks
-  with HasTileInputConstants
+  with HasTileInputConstants // this trait connect a BOOTROM
 { this: BaseSubsystem => } // TODO: ideally this bound would be softened to LazyModule
 
 /** Standardized interface by which parameterized tiles can be attached to contexts containing interconnect resources.
@@ -239,7 +239,7 @@ trait CanAttachTile {
   /** Narrow waist through which all tiles are intended to pass while being instantiated. */
   def instantiate(implicit p: Parameters): TilePRCIDomain[TileType] = {
     val tile_prci_domain = LazyModule(new TilePRCIDomain[TileType](tileParams.hartId) {
-      val tile = LazyModule(tileParams.instantiate(crossingParams, lookup))
+      val tile = LazyModule(tileParams.instantiate(crossingParams, lookup)) // no need to be rocket tile param, other is ok
     })
     tile_prci_domain
   }
@@ -248,7 +248,7 @@ trait CanAttachTile {
   def connect(domain: TilePRCIDomain[TileType], context: TileContextType): Unit = {
     connectMasterPorts(domain, context)
     connectSlavePorts(domain, context)
-    connectInterrupts(domain, context)
+    connectInterrupts(domain, context) // we connect the intNode to tile here
     connectPRC(domain, context)
     connectOutputNotifications(domain.tile, context)
     connectInputConstants(domain.tile, context)
@@ -372,10 +372,11 @@ trait InstantiatesTiles { this: BaseSubsystem =>
     * Note that these ids, which are often used as the tiles' default hartid input,
     * may or may not be those actually reflected at runtime in e.g. the $mhartid CSR
     */
+  // the tiles is firstly created by this parameters
   val tileAttachParams: Seq[CanAttachTile] = p(TilesLocated(location)).sortBy(_.tileParams.hartId)
 
   /** The actual list of instantiated tiles in this subsystem. */
-  val tile_prci_domains: Seq[TilePRCIDomain[_]] = tileAttachParams.map(_.instantiate(p))
+  val tile_prci_domains: Seq[TilePRCIDomain[_]] = tileAttachParams.map(_.instantiate(p)) // instantiate the tile here
   val tiles: Seq[BaseTile] = tile_prci_domains.map(_.tile.asInstanceOf[BaseTile])
 
   // Helper functions for accessing certain parameters that are popular to refer to in subsystem code
@@ -394,6 +395,7 @@ trait HasTiles extends InstantiatesTiles with HasCoreMonitorBundles with Default
   implicit val p: Parameters
 
   // connect all the tiles to interconnect attachment points made available in this subsystem context
+  // we connect all system hierarchy here
   tileAttachParams.zip(tile_prci_domains).foreach { case (params, td) =>
     params.connect(td.asInstanceOf[TilePRCIDomain[params.TileType]], this.asInstanceOf[params.TileContextType])
   }

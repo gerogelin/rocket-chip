@@ -13,11 +13,14 @@ class WithDebugAPB extends freechips.rocketchip.subsystem.WithDebugAPB
 
 class BaseConfig extends Config(
   new WithDefaultMemPort() ++
+  new WithBackingScratchpad() ++
+  //new WithNoMemPort() ++
   new WithDefaultMMIOPort() ++
-  new WithDefaultSlavePort() ++
+  //new WithDefaultSlavePort() ++
+  new WithJtagDTMSystem() ++
   new WithTimebase(BigInt(1000000)) ++ // 1 MHz
   new WithDTS("freechips,rocketchip-unknown", Nil) ++
-  new WithNExtTopInterrupts(2) ++
+  new WithNExtTopInterrupts(64) ++
   new BaseSubsystemConfig()
 )
 

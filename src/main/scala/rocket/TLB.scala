@@ -27,7 +27,7 @@ class SFenceReq(implicit p: Parameters) extends CoreBundle()(p) {
 }
 
 class TLBReq(lgMaxSize: Int)(implicit p: Parameters) extends CoreBundle()(p) {
-  val vaddr = UInt(width = vaddrBitsExtended)
+  val vaddr = UInt(width = vaddrBitsExtended) // visual address
   val passthrough = Bool()
   val size = UInt(width = log2Ceil(lgMaxSize + 1))
   val cmd  = Bits(width = M_SZ)
@@ -44,10 +44,10 @@ class TLBExceptions extends Bundle {
 class TLBResp(implicit p: Parameters) extends CoreBundle()(p) {
   // lookup responses
   val miss = Bool()
-  val paddr = UInt(width = paddrBits)
+  val paddr = UInt(width = paddrBits) // physical address
   val pf = new TLBExceptions
   val ae = new TLBExceptions
-  val ma = new TLBExceptions
+  val ma = new TLBExceptions // misalign
   val cacheable = Bool()
   val must_alloc = Bool()
   val prefetchable = Bool()
@@ -55,7 +55,7 @@ class TLBResp(implicit p: Parameters) extends CoreBundle()(p) {
 
 class TLBEntryData(implicit p: Parameters) extends CoreBundle()(p) {
   val ppn = UInt(width = ppnBits)
-  val u = Bool()
+  val u = Bool() // user ?
   val g = Bool()
   val ae = Bool()
   val sw = Bool()
@@ -68,16 +68,19 @@ class TLBEntryData(implicit p: Parameters) extends CoreBundle()(p) {
   val pal = Bool() // AMO logical
   val paa = Bool() // AMO arithmetic
   val eff = Bool() // get/put effects
-  val c = Bool()
+  val c = Bool() // clean ?
   val fragmented_superpage = Bool()
 }
 
+// the TLB inside behavior, main functions like visual address to physical address, judge hit or miss
 class TLBEntry(val nSectors: Int, val superpage: Boolean, val superpageOnly: Boolean)(implicit p: Parameters) extends CoreBundle()(p) {
   require(nSectors == 1 || !superpage)
   require(!superpageOnly || superpage)
 
-  val level = UInt(width = log2Ceil(pgLevels))
-  val tag = UInt(width = vpnBits)
+  //PgLevels => if (site(XLen) == 64) 3 /* Sv39 */ else 2 /* Sv32 */
+  //pgLevels = p(PgLevels)
+  val level = UInt(width = log2Ceil(pgLevels)) // pgLevels is from CoreBundle which contain parameters setting
+  val tag = UInt(width = vpnBits) // vpn: visual page number
   val data = Vec(nSectors, UInt(width = new TLBEntryData().getWidth))
   val valid = Vec(nSectors, Bool())
   def entry_data = data.map(_.asTypeOf(new TLBEntryData))
@@ -100,7 +103,7 @@ class TLBEntry(val nSectors: Int, val superpage: Boolean, val superpageOnly: Boo
       valid(idx) && sectorTagMatch(vpn)
     }
   }
-  def ppn(vpn: UInt) = {
+  def ppn(vpn: UInt) = { // physical page number
     val data = getData(vpn)
     if (superpage && usingVM) {
       var res = data.ppn >> pgLevelBits*(pgLevels - 1)
@@ -146,7 +149,7 @@ class TLBEntry(val nSectors: Int, val superpage: Boolean, val superpageOnly: Boo
 
 case class TLBConfig(
     nSets: Int,
-    nWays: Int,
+    nWays: Int, // ways is the positions avariable for each fixed physical memeory
     nSectors: Int = 4,
     nSuperpageEntries: Int = 4)
 
@@ -162,7 +165,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
   val pageGranularityPMPs = pmpGranularity >= (1 << pgIdxBits)
   val vpn = io.req.bits.vaddr(vaddrBits-1, pgIdxBits)
   val memIdx = vpn.extract(cfg.nSectors.log2 + cfg.nSets.log2 - 1, cfg.nSectors.log2)
-  val sectored_entries = Reg(Vec(cfg.nSets, Vec(cfg.nWays / cfg.nSectors, new TLBEntry(cfg.nSectors, false, false))))
+  val sectored_entries = Reg(Vec(cfg.nSets, Vec(cfg.nWays / cfg.nSectors, new TLBEntry(cfg.nSectors, false, false)))) // apart to more hierarchy
   val superpage_entries = Reg(Vec(cfg.nSuperpageEntries, new TLBEntry(1, true, true)))
   val special_entry = (!pageGranularityPMPs).option(Reg(new TLBEntry(1, true, false)))
   def ordinary_entries = sectored_entries(memIdx) ++ superpage_entries
@@ -177,7 +180,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
   val r_sectored_hit_addr = Reg(UInt(log2Ceil(sectored_entries(0).size).W))
   val r_sectored_hit = Reg(Bool())
 
-  val priv = if (instruction) io.ptw.status.prv else io.ptw.status.dprv
+  val priv = if (instruction) io.ptw.status.prv else io.ptw.status.dprv // use different privelge
   val priv_s = priv(0)
   val priv_uses_vm = priv <= PRV.S
   val vm_enabled = Bool(usingVM) && io.ptw.ptbr.mode(io.ptw.ptbr.mode.getWidth-1) && priv_uses_vm && !io.req.bits.passthrough
@@ -239,7 +242,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
 
     when (special_entry.nonEmpty && !io.ptw.resp.bits.homogeneous) {
       special_entry.foreach { e =>
-        e.insert(r_refill_tag, io.ptw.resp.bits.level, newEntry)
+        e.insert(r_refill_tag, io.ptw.resp.bits.level, newEntry) // call insert behavior to fill the entry
         when (invalidate_refill) { e.invalidate() }
       }
     }.elsewhen (io.ptw.resp.bits.level < pgLevels-1) {
@@ -291,6 +294,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
     }).orR
   }
 
+  // load reserved/store conditional
   val cmd_lrsc = Bool(usingAtomics) && io.req.bits.cmd.isOneOf(M_XLR, M_XSC)
   val cmd_amo_logical = Bool(usingAtomics) && isAMOLogical(io.req.bits.cmd)
   val cmd_amo_arithmetic = Bool(usingAtomics) && isAMOArithmetic(io.req.bits.cmd)
@@ -358,6 +362,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
   io.ptw.req.bits.valid := !io.kill
   io.ptw.req.bits.bits.addr := r_refill_tag
 
+  // real FSM here
   if (usingVM) {
     val sfence = io.sfence.valid
     when (io.req.fire() && tlb_miss) {

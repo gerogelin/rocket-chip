@@ -27,7 +27,7 @@ object DsbBusConsts {
 
 }
 
-object DsbRegAddrs{
+object DsbRegAddrs{ // sb abbreviate for system bus
 
   // These are used by the ROM.
   def HALTED       = 0x100
@@ -217,8 +217,27 @@ class DebugCtrlBundle (nComponents: Int)(implicit val p: Parameters) extends Par
 
 // *****************************************
 // Debug Module 
-// 
+// Important Note here
 // *****************************************
+
+/* TODO readme firsty
+ * the debug contain 2 buses like above  descript
+ * for the DMI there is a register mapping, we can see it on the debug reference
+ * for the TL, see the DsbRegAddrs for detail
+ * actually this is the 2 registers mapping
+ * the debug firstly get requeset from host through JTAG
+ * then the DTM convert this request from JTAG to DMI
+ * and using DMI to set some registers like WHERETO in TileLink node
+ * then, start to require the halt, and the core will go
+ * to the WHERETO to execute some code, 
+ * for example read PC(just for guess)
+ *  1. the code will firstly save the certain register to TL register;
+ *  2. then use some command to move the PC to this register;
+ *  3. then move this regiter to another TL register;
+ *  4. then move the first TL register to that register we used before;
+ *  5. make the core into a idle status.
+ * and this code is save in a ROM, which deliver with fixed core.
+ **/
 
 /** Parameterized version of the Debug Module defined in the
   *  RISC-V Debug Specification 
@@ -555,6 +574,7 @@ class TLDebugModuleOuter(device: Device)(implicit p: Parameters) extends LazyMod
 
     debugIntNxt := debugIntRegs
 
+    // connect the output debug interrupt to node
     val (intnode_out, _) = intnode.out.unzip
     for (component <- 0 until nComponents) {
       intnode_out(component)(0) := debugIntRegs(component) | io.hgDebugInt(component)
@@ -743,6 +763,7 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int, beatBytes: I
 
     val io = IO(new Bundle {
       val dmactive = Input(Bool())
+      // Flipped used to make output to input, input to output
       val innerCtrl = Flipped(new DecoupledIO(new DebugInternalBundle(nComponents)))
       val debugUnavail = Input(Vec(nComponents, Bool()))
       val hgDebugInt = Output(Vec(nComponents, Bool()))
@@ -1843,6 +1864,11 @@ class TLDebugModule(beatBytes: Int)(implicit p: Parameters) extends LazyModule {
       val tl_clock = Input(Clock())
       val tl_reset = Input(Reset())
 
+      // all we need to communicate with core is the hart request or release,
+      // we can make the core to execute the code in program buffer, instead
+      // of sending the command to core, firstly write the program to buffer
+      // then, make sure the interrupt handle go to the program buffer,
+      // actually, the debug mechanism is leverage by the interrupt mechanism
       val ctrl = new DebugCtrlBundle(nComponents)
       val dmi = (!p(ExportDebug).apb).option(Flipped(new ClockedDMIIO()))
       val apb_clock = p(ExportDebug).apb.option(Input(Clock()))

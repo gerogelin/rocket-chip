@@ -18,13 +18,13 @@ class BPControl(implicit p: Parameters) extends CoreBundle()(p) {
   val chain = Bool()
   val zero = UInt(2.W)
   val tmatch = UInt(2.W)
-  val m = Bool()
-  val h = Bool()
-  val s = Bool()
-  val u = Bool()
-  val x = Bool()
-  val w = Bool()
-  val r = Bool()
+  val m = Bool() // machine
+  val h = Bool() // hypervisor
+  val s = Bool() // supervisor
+  val u = Bool() // user
+  val x = Bool() // execute
+  val w = Bool() // write
+  val r = Bool() // read
 
   def tType = 2
   def maskMax = 4
@@ -89,8 +89,8 @@ class BreakpointUnit(n: Int)(implicit val p: Parameters) extends Module with Has
     val xcpt_ld  = Output(Bool())
     val xcpt_st  = Output(Bool())
     val debug_if = Output(Bool())
-    val debug_ld = Output(Bool())
-    val debug_st = Output(Bool())
+    val debug_ld = Output(Bool()) // load
+    val debug_st = Output(Bool()) // store
     val bpwatch  = Output(Vec(n, new BPWatch(1)))
   })
 

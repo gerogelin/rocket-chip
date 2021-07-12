@@ -85,6 +85,8 @@ class RocketLogicalTreeNode(
     ))
   }
 
+  // this OMComponent Seq is the basic skeleton of Rocket chip
+  // add other component into sequence if we need to add other module
   override def getOMComponents(resourceBindings: ResourceBindings, components: Seq[OMComponent]): Seq[OMComponent] = {
     val rocketParams = tile.rocketParams
     val coreParams = rocketParams.core

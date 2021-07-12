@@ -88,6 +88,7 @@ abstract class LazyModule()(implicit val p: Parameters) {
   /** Instance name in verilog. Should only be accessed after circuit elaboration. */
   lazy val instanceName: String = pathName.split('.').last
 
+  // here module need to be implement
   /** [[chisel3]] hardware implementation of this [[LazyModule]].
     *
     * Subclasses should define this function as `lazy val`s for lazy evaluation.
@@ -250,6 +251,7 @@ object LazyModule {
   * This is the actual Chisel module that is lazily-evaluated in the second phase of Diplomacy.
   */
 sealed trait LazyModuleImpLike extends RawModule {
+  // here the chip wrapper, which is the lazymodule
   /** [[LazyModule]] that contains this instance. */
   val wrapper: LazyModule
   /** IOs that will be automatically "punched" for this instance. */
@@ -332,6 +334,7 @@ sealed trait LazyModuleImpLike extends RawModule {
   *
   * @param wrapper the [[LazyModule]] from which the `.module` call is being made.
   */
+ // here, really convert the scala language to firrtl by using chisel3 library
 class LazyModuleImp(val wrapper: LazyModule) extends MultiIOModule with LazyModuleImpLike {
   /** Instantiate hardware of this `Module`. */
   val (auto, dangles) = instantiate()

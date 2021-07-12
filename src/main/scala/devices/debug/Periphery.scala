@@ -74,12 +74,12 @@ trait HasPeripheryDebug { this: BaseSubsystem =>
 
   val debugCustomXbarOpt = p(DebugModuleKey).map(params => LazyModule( new DebugCustomXbar(outputRequiresInput = false)))
   val apbDebugNodeOpt = p(ExportDebug).apb.option(APBMasterNode(Seq(APBMasterPortParameters(Seq(APBMasterParameters("debugAPB"))))))
-  val debugOpt = p(DebugModuleKey).map { params =>
+  val debugOpt = p(DebugModuleKey).map { params => // we create the debug module with DMI bus and TL bus
     val debug = LazyModule(new TLDebugModule(tlbus.beatBytes))
 
     LogicalModuleTree.add(logicalTreeNode, debug.logicalTreeNode)
 
-    debug.node := tlbus.coupleTo("debug"){ TLFragmenter(tlbus) := _ }
+    debug.node := tlbus.coupleTo("debug"){ TLFragmenter(tlbus) := _ } // connect the debug module to system bus
     debug.dmInner.dmInner.customNode := debugCustomXbarOpt.get.node
 
     (apbDebugNodeOpt zip debug.apbNodeOpt) foreach { case (master, slave) =>
@@ -96,7 +96,7 @@ trait HasPeripheryDebug { this: BaseSubsystem =>
 }
 
 trait HasPeripheryDebugModuleImp extends LazyModuleImp {
-  val outer: HasPeripheryDebug
+  val outer: HasPeripheryDebug // DM is created here
 
   val psd = IO(new PSDIO)
 
@@ -109,6 +109,7 @@ trait HasPeripheryDebugModuleImp extends LazyModuleImp {
     resetctrl
   }
 
+  // here really create the DTM
   // noPrefix is workaround https://github.com/freechipsproject/chisel3/issues/1603
   val debug = noPrefix(outer.debugOpt.map { outerdebug =>
     val debug = IO(new DebugIO)
@@ -148,6 +149,7 @@ trait HasPeripheryDebugModuleImp extends LazyModuleImp {
     debug
   })
 
+  // if the systemjtag exist, create DTM for them
   val dtm = debug.flatMap(_.systemjtag.map(instantiateJtagDTM(_)))
 
   def instantiateJtagDTM(sj: SystemJTAGIO): DebugTransportModuleJTAG = {

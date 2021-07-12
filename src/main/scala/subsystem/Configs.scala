@@ -27,17 +27,17 @@ class BaseSubsystemConfig extends Config ((site, here, up) => {
     errorDevice = Some(BuiltInErrorDeviceParams(
       errorParams = DevNullParams(List(AddressSet(0x3000, 0xfff)), maxAtomic=site(XLen)/8, maxTransfer=4096))))
   case PeripheryBusKey => PeripheryBusParams(
-    beatBytes = site(XLen)/8,
+    beatBytes = 32, //site(XLen)/8,
     blockBytes = site(CacheBlockBytes),
     dtsFrequency = Some(100000000)) // Default to 100 MHz pbus clock
   case MemoryBusKey => MemoryBusParams(
-    beatBytes = site(XLen)/8,
+    beatBytes = 32, //site(XLen)/8,
     blockBytes = site(CacheBlockBytes))
   case FrontBusKey => FrontBusParams(
     beatBytes = site(XLen)/8,
     blockBytes = site(CacheBlockBytes))
   // Additional device Parameters
-  case BootROMLocated(InSubsystem) => Some(BootROMParams(contentFileName = "./bootrom/bootrom.img"))
+  case BootROMLocated(InSubsystem) => Some(BootROMParams(contentFileName = "./bootrom/bootrom.img", hang = 0x10000))
   case SubsystemExternalResetVectorKey => false
   case DebugModuleKey => Some(DefaultDebugModuleParams(site(XLen)))
   case CLINTKey => Some(CLINTParams())
@@ -82,11 +82,12 @@ class WithNBigCores(n: Int, overrideIdOffset: Option[Int] = None) extends Config
   case RocketTilesKey => {
     val prev = up(RocketTilesKey, site)
     val idOffset = overrideIdOffset.getOrElse(prev.size)
-    val big = RocketTileParams(
+    val big = RocketTileParams( // tile is created in this parameter
       core   = RocketCoreParams(mulDiv = Some(MulDivParams(
         mulUnroll = 8,
         mulEarlyOut = true,
-        divEarlyOut = true))),
+        divEarlyOut = true)),
+        haveCFlush = true),
       dcache = Some(DCacheParams(
         rowBits = site(SystemBusKey).beatBits,
         nMSHRs = 0,
@@ -346,6 +347,7 @@ class WithEdgeDataBits(dataBits: Int) extends Config((site, here, up) => {
 
 class WithJtagDTM extends Config ((site, here, up) => {
   case ExportDebug => up(ExportDebug, site).copy(protocols = Set(JTAG))
+  // still need to config the JtagDTMKey
 })
 
 class WithDebugAPB extends Config ((site, here, up) => {
@@ -389,7 +391,7 @@ class WithTimebase(hertz: BigInt) extends Config((site, here, up) => {
 class WithDefaultMemPort extends Config((site, here, up) => {
   case ExtMem => Some(MemoryPortParams(MasterPortParams(
                       base = x"8000_0000",
-                      size = x"1000_0000",
+                      size = x"8000_0000",
                       beatBytes = site(MemoryBusKey).beatBytes,
                       idBits = 4), 1))
 })
@@ -402,7 +404,7 @@ class WithDefaultMMIOPort extends Config((site, here, up) => {
   case ExtBus => Some(MasterPortParams(
                       base = x"6000_0000",
                       size = x"2000_0000",
-                      beatBytes = site(MemoryBusKey).beatBytes,
+                      beatBytes = site(PeripheryBusKey).beatBytes,
                       idBits = 4))
 })
 

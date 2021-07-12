@@ -14,7 +14,7 @@ class HellaCacheArbiter(n: Int)(implicit p: Parameters) extends Module
   }
 
   if (n == 1) {
-    io.mem <> io.requestor.head
+    io.mem <> io.requestor.head // head is the Vec's function
   } else {
     val s1_id = Reg(UInt())
     val s2_id = Reg(next=s1_id)
