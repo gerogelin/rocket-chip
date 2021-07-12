@@ -1,0 +1,1580 @@
+Submodule api-config-chipsalliance contains modified content
+diff --git a/api-config-chipsalliance/design/craft/src/config/Config.scala b/api-config-chipsalliance/design/craft/src/config/Config.scala
+index 80ce4e0..d4fa563 100644
+--- a/api-config-chipsalliance/design/craft/src/config/Config.scala
++++ b/api-config-chipsalliance/design/craft/src/config/Config.scala
+@@ -21,6 +21,18 @@ object config {
+     def this(default: T) = this(Some(default))
+   }
+ 
++  // apply is a special function
++  // because we have define the apply function here
++  // so we can accese the field by format like below
++  //    object(field)
++  // for example:
++  //    val p: Parameters = ...
++  //    val dts: Field[String] = ...
++  // then
++  //    val test: String = p(dts)
++  // =
++  //    val test: String = p.apply(dts)
++  //    will call the apply function and return a string for it
+   abstract class View {
+     final def apply[T](pname: Field[T]): T = apply(pname, this)
+     final def apply[T](pname: Field[T], site: View): T = {
+@@ -40,6 +52,11 @@ object config {
+     final def alter(rhs: Parameters): Parameters =
+       new ChainParameters(rhs, this)
+ 
++    // here alter(Parameters(f))
++    //  = alter(new PartialParameters(f))
++    //  WTF
++    // if there are object and class with some name in same file
++    // the apply method in object needed to be implemented which function is to new a object of that class
+     final def alter(f: (View, View, View) => PartialFunction[Any,Any]): Parameters =
+       alter(Parameters(f))
+ 
+Submodule chisel3 contains untracked content
+Submodule chisel3 contains modified content
+diff --git a/chisel3/core/src/main/scala/chisel3/Module.scala b/chisel3/core/src/main/scala/chisel3/Module.scala
+index 82a1708e..149b474e 100644
+--- a/chisel3/core/src/main/scala/chisel3/Module.scala
++++ b/chisel3/core/src/main/scala/chisel3/Module.scala
+@@ -24,8 +24,11 @@ object Module extends SourceInfoDoc {
+     *
+     * @return the input module `m` with Chisel metadata properly set
+     */
++  // we implement the module apply
++  // so we can call Module(dut) to get the new module
+   def apply[T <: BaseModule](bc: => T): T = macro InstTransform.apply[T]
+ 
++  // the above apply actually call the do_apply function to init a new MODULE
+   /** @group SourceInfoTransformMacro */
+   def do_apply[T <: BaseModule](bc: => T)
+                                (implicit sourceInfo: SourceInfo,
+@@ -51,6 +54,7 @@ object Module extends SourceInfoDoc {
+     //   - unset readyForModuleConstr
+     //   - reset whenStack to be empty
+     //   - set currentClockAndReset
++    // !!!!!!!!!!!!!!! finally we use this function here and get the Module !!!!!!!!!!!!!!!!!!!!!!
+     val module: T = bc  // bc is actually evaluated here
+ 
+     if (Builder.whenDepth != 0) {
+diff --git a/chisel3/core/src/main/scala/chisel3/internal/Builder.scala b/chisel3/core/src/main/scala/chisel3/internal/Builder.scala
+index 3e0362e7..dc1ade14 100644
+--- a/chisel3/core/src/main/scala/chisel3/internal/Builder.scala
++++ b/chisel3/core/src/main/scala/chisel3/internal/Builder.scala
+@@ -618,6 +618,7 @@ private[chisel3] object Builder {
+   }
+ 
+ 
++  // here we see the 2 important print
+   def build[T <: RawModule](f: => T): (Circuit, T) = {
+     dynamicContextVar.withValue(Some(new DynamicContext())) {
+       checkScalaVersion()
+diff --git a/chisel3/core/src/main/scala/chisel3/package.scala b/chisel3/core/src/main/scala/chisel3/package.scala
+index fb83c9d9..02f2555d 100644
+--- a/chisel3/core/src/main/scala/chisel3/package.scala
++++ b/chisel3/core/src/main/scala/chisel3/package.scala
+@@ -167,6 +167,7 @@ package object chisel3 {
+ 
+   type InstanceId = internal.InstanceId
+ 
++  // type is just like alias
+   type Module = chisel3.internal.LegacyModule
+ 
+   /** Implicit for custom Printable string interpolator */
+diff --git a/chisel3/src/main/scala/chisel3/Driver.scala b/chisel3/src/main/scala/chisel3/Driver.scala
+index 998f5ca0..31069c2c 100644
+--- a/chisel3/src/main/scala/chisel3/Driver.scala
++++ b/chisel3/src/main/scala/chisel3/Driver.scala
+@@ -203,6 +203,15 @@ object Driver extends BackendCompilationUtilities {
+   @deprecated("This has no effect on Chisel3 Driver! This will be removed in 3.4.", "3.2.2")
+   def targetDir(): String = { target_dir getOrElse new File(".").getCanonicalPath }
+ 
++  // execute is called by the terminal command
++  // there are 2 parameters
++  // 1. the terminal arguments
++  // 2. the design
++  //
++  // the main entry like that
++  // object addergen extend App {
++  //   chisel3.Driver.execute(args, () => new DUT)
++  // }
+   /**
+     * Run the chisel3 compiler and possibly the firrtl compiler with options specified
+     *
+@@ -215,6 +224,10 @@ object Driver extends BackendCompilationUtilities {
+       optionsManager: ExecutionOptionsManager with HasChiselExecutionOptions with HasFirrtlOptions,
+       dut: () => RawModule): ChiselExecutionResult = {
+ 
++    // here dut is the design of the circuit
++    // by using ChiselGeneratorAnnotation to get the annotation
++    // we convert the dut to annotation(need to know the annotation meaning)
++    // general sequence also need call the ChiselGeneratorAnnotation to get the design annotation
+     val annos: AnnotationSeq =
+       Seq(DriverCompatibility.OptionsManagerAnnotation(optionsManager), ChiselGeneratorAnnotation(dut)) ++
+         optionsManager.chiselOptions.toAnnotations ++
+@@ -225,7 +238,7 @@ object Driver extends BackendCompilationUtilities {
+       Seq( Dependency[DriverCompatibility.AddImplicitOutputFile],
+            Dependency[DriverCompatibility.AddImplicitOutputAnnotationFile],
+            Dependency[DriverCompatibility.DisableFirrtlStage],
+-           Dependency[ChiselStage],
++           Dependency[ChiselStage], // Stage inherit from Phase
+            Dependency[DriverCompatibility.MutateOptionsManager],
+            Dependency[DriverCompatibility.ReEnableFirrtlStage],
+            Dependency[DriverCompatibility.FirrtlPreprocessing],
+@@ -234,10 +247,18 @@ object Driver extends BackendCompilationUtilities {
+       Seq( Dependency[firrtl.stage.phases.DriverCompatibility.AddImplicitFirrtlFile],
+            Dependency[chisel3.stage.phases.Convert] )
+ 
++    // the build sequence
++    // transformOrder is a method from DependencyManager
++    // this function make sure the build sequence is reasonable
+     val phases: Seq[Phase] = new PhaseManager(targets, currentState) {
+       override val wrappers = Seq( DeletedWrapper(_: Phase) )
+     }.transformOrder
+ 
++    // foldLeft is Seq's function
++    // call foldLeft to execute the phase one by one
++    // (a, p) => (annotations, phases)
++    // the really transform implement is in different phases which inherit from Phase class
++    // which save in targets
+     val annosx = try {
+       phases.foldLeft(annos)( (a, p) => p.transform(a) )
+     } catch {
+diff --git a/chisel3/src/main/scala/chisel3/stage/ChiselAnnotations.scala b/chisel3/src/main/scala/chisel3/stage/ChiselAnnotations.scala
+index bbe86ab4..8d4858f0 100644
+--- a/chisel3/src/main/scala/chisel3/stage/ChiselAnnotations.scala
++++ b/chisel3/src/main/scala/chisel3/stage/ChiselAnnotations.scala
+@@ -49,6 +49,10 @@ case object PrintFullStackTraceAnnotation
+ 
+ }
+ 
++// the elaborate STAGE will call the elaborate method
++// so finally the 2 sequence go to the same execute path
++//    1. rocketchip stage transform actually call this functions to get the circuit design
++//    2. normal execute sequence also come to here
+ /** An [[firrtl.annotations.Annotation]] storing a function that returns a Chisel module
+   * @param gen a generator function
+   */
+@@ -57,6 +61,11 @@ case class ChiselGeneratorAnnotation(gen: () => RawModule) extends NoTargetAnnot
+   /** Run elaboration on the Chisel module generator function stored by this [[firrtl.annotations.Annotation]]
+     */
+   def elaborate: AnnotationSeq  = try {
++    // this Module is actually the chisel3.internal.LegacyModule(see the package.scala in core directory)
++    // the class hierarchy like below
++    //   LegacyModule :< MultiIOModule :< RawModule
++    // build require a parameter func which return a object inherit from RawModule
++    // call Module to new DUT
+     val (circuit, dut) = Builder.build(Module(gen()))
+     Seq(ChiselCircuitAnnotation(circuit), DesignAnnotation(dut))
+   } catch {
+diff --git a/chisel3/src/main/scala/chisel3/stage/phases/Elaborate.scala b/chisel3/src/main/scala/chisel3/stage/phases/Elaborate.scala
+index 04cfc33e..803c00d2 100644
+--- a/chisel3/src/main/scala/chisel3/stage/phases/Elaborate.scala
++++ b/chisel3/src/main/scala/chisel3/stage/phases/Elaborate.scala
+@@ -20,6 +20,7 @@ class Elaborate extends Phase {
+   override def optionalPrerequisiteOf = Seq.empty
+   override def invalidates(a: Phase) = false
+ 
++  // call the elaborate actually
+   def transform(annotations: AnnotationSeq): AnnotationSeq = annotations.flatMap {
+     case a: ChiselGeneratorAnnotation => a.elaborate
+     case a                            => Some(a)
+Submodule firrtl contains modified content
+diff --git a/firrtl/src/main/scala/firrtl/options/DependencyManager.scala b/firrtl/src/main/scala/firrtl/options/DependencyManager.scala
+index 39998ed7..eca0346e 100644
+--- a/firrtl/src/main/scala/firrtl/options/DependencyManager.scala
++++ b/firrtl/src/main/scala/firrtl/options/DependencyManager.scala
+@@ -182,6 +182,7 @@ trait DependencyManager[A, B <: TransformLike[A] with DependencyAPI[B]] extends
+     ).reverse
+   }
+ 
++  // while using PhaseManager A is AnnotationSeq
+   /** Wrap a possible [[CyclicException]] thrown by a thunk in a [[DependencyManagerException]] */
+   private def cyclePossible[A](a: String, diGraph: DiGraph[_])(thunk: => A): A = try { thunk }
+   catch {
+@@ -207,6 +208,18 @@ trait DependencyManager[A, B <: TransformLike[A] with DependencyAPI[B]] extends
+      */
+     val sorted = {
+       val edges = {
++        // FIXME: 2 explaination
++        // Final Solution: 2, if you want to make reverse before the result
++        //    called like below(add an additional () to include the reverse function)
++        //      cyclePossible("invalidates", invalidateGraph) ({invalidateGraph.linearize}.reverse)
++        // 1.
++        //    cyclePossible("invalidates", invalidateGraph) is a func
++        //    it's called by this format "func params"
++        //    which params is the { invalidateGraph.linearize }.reverse functions
++        // 2.
++        //    {} is used like ()
++        //    so the cyclePossible is actually like cyclePossible("invalidates", invalidateGraph)(invalidateGraph.linearize)
++        //    once we get the cyclePossible result, we call the reverse on the result
+         val v = cyclePossible("invalidates", invalidateGraph) { invalidateGraph.linearize }.reverse
+         /* A comparison function that will sort vertices based on the topological sort of the invalidation graph */
+         val cmp =
+diff --git a/firrtl/src/main/scala/firrtl/options/Stage.scala b/firrtl/src/main/scala/firrtl/options/Stage.scala
+index 8e2c11d1..414f7422 100644
+--- a/firrtl/src/main/scala/firrtl/options/Stage.scala
++++ b/firrtl/src/main/scala/firrtl/options/Stage.scala
+@@ -23,6 +23,18 @@ abstract class Stage extends Phase {
+     * @param annotations input annotations
+     * @return output annotations
+     */
++  //val targets: Seq[PhaseDependency] = Seq(
++  //  Dependency[freechips.rocketchip.stage.phases.Checks],
++  //  Dependency[freechips.rocketchip.stage.phases.TransformAnnotations],
++  //  Dependency[freechips.rocketchip.stage.phases.PreElaboration],
++  //  Dependency[RocketChiselStage],
++  //  Dependency[freechips.rocketchip.stage.phases.GenerateFirrtlAnnos],
++  //  Dependency[freechips.rocketchip.stage.phases.AddDefaultTests],
++  //  Dependency[freechips.rocketchip.stage.phases.GenerateTestSuiteMakefrags],
++  //  Dependency[freechips.rocketchip.stage.phases.GenerateArtefacts]
++  //)
++  //private val pm = new PhaseManager(targets)
++  //override def run(annotations: AnnotationSeq): AnnotationSeq = pm.transform(annotations)
+   def run(annotations: AnnotationSeq): AnnotationSeq
+ 
+   /** Execute this stage on some input annotations. Annotations will be read from any input annotation files.
+@@ -31,8 +43,10 @@ abstract class Stage extends Phase {
+     * @throws OptionsException if command line or annotation validation fails
+     */
+   final def transform(annotations: AnnotationSeq): AnnotationSeq = {
++    // actually in more genernal type
++    // val annotationsx = phases.DeletedWrapper(new phases.GetIncludes).transform(anontations)
+     val annotationsx =
+-      Seq(new phases.GetIncludes)
++      Seq(new phases.GetIncludes) // this phases is a internal PACKAGE
+         .map(phases.DeletedWrapper(_))
+         .foldLeft(annotations)((a, p) => p.transform(a))
+ 
+@@ -40,6 +54,8 @@ abstract class Stage extends Phase {
+       Seq(
+         new phases.AddDefaults,
+         new phases.Checks,
++        // this will call the stage's transform, see the RocketChipStage implement the run
++        // run = targets.transform
+         new Phase { def transform(a: AnnotationSeq) = run(a) },
+         new phases.WriteOutputAnnotations
+       )
+@@ -54,6 +70,7 @@ abstract class Stage extends Phase {
+     * @return output annotations
+     * @throws OptionsException if command line or annotation validation fails
+     */
++  //override val shell = new Shell("rocket-chip") with RocketChipCli with ChiselCli with FirrtlCli
+   final def execute(args: Array[String], annotations: AnnotationSeq): AnnotationSeq =
+     transform(shell.parse(args, annotations))
+ 
+diff --git a/src/main/scala/devices/debug/Debug.scala b/src/main/scala/devices/debug/Debug.scala
+index 52377f094..72d24bb8f 100755
+--- a/src/main/scala/devices/debug/Debug.scala
++++ b/src/main/scala/devices/debug/Debug.scala
+@@ -27,7 +27,7 @@ object DsbBusConsts {
+ 
+ }
+ 
+-object DsbRegAddrs{
++object DsbRegAddrs{ // sb abbreviate for system bus
+ 
+   // These are used by the ROM.
+   def HALTED       = 0x100
+@@ -217,7 +217,7 @@ class DebugCtrlBundle (nComponents: Int)(implicit val p: Parameters) extends Par
+ 
+ // *****************************************
+ // Debug Module 
+-// 
++// Important Note here
+ // *****************************************
+ 
+ /** Parameterized version of the Debug Module defined in the
+@@ -555,6 +555,7 @@ class TLDebugModuleOuter(device: Device)(implicit p: Parameters) extends LazyMod
+ 
+     debugIntNxt := debugIntRegs
+ 
++    // connect the output debug interrupt to node
+     val (intnode_out, _) = intnode.out.unzip
+     for (component <- 0 until nComponents) {
+       intnode_out(component)(0) := debugIntRegs(component) | io.hgDebugInt(component)
+@@ -743,6 +744,7 @@ class TLDebugModuleInner(device: Device, getNComponents: () => Int, beatBytes: I
+ 
+     val io = IO(new Bundle {
+       val dmactive = Input(Bool())
++      // Flipped used to make output to input, input to output
+       val innerCtrl = Flipped(new DecoupledIO(new DebugInternalBundle(nComponents)))
+       val debugUnavail = Input(Vec(nComponents, Bool()))
+       val hgDebugInt = Output(Vec(nComponents, Bool()))
+@@ -1843,6 +1845,11 @@ class TLDebugModule(beatBytes: Int)(implicit p: Parameters) extends LazyModule {
+       val tl_clock = Input(Clock())
+       val tl_reset = Input(Reset())
+ 
++      // all we need to communicate with core is the hart request or release,
++      // we can make the core to execute the code in program buffer, instead
++      // of sending the command to core, firstly write the program to buffer
++      // then, make sure the interrupt handle go to the program buffer,
++      // actually, the debug mechanism is leverage by the interrupt mechanism
+       val ctrl = new DebugCtrlBundle(nComponents)
+       val dmi = (!p(ExportDebug).apb).option(Flipped(new ClockedDMIIO()))
+       val apb_clock = p(ExportDebug).apb.option(Input(Clock()))
+diff --git a/src/main/scala/devices/debug/DebugRomContents.scala b/src/main/scala/devices/debug/DebugRomContents.scala
+index dc919de78..019f124e6 100644
+--- a/src/main/scala/devices/debug/DebugRomContents.scala
++++ b/src/main/scala/devices/debug/DebugRomContents.scala
+@@ -4,6 +4,7 @@ package freechips.rocketchip.devices.debug
+ 
+ object DebugRomContents {
+ 
++  // this is a special code for debug
+   def apply() : Array[Byte] = { Array (
+   0x6f, 0x00, 0xc0, 0x00, 0x6f, 0x00, 0x80, 0x03, 0x6f, 0x00, 0x40, 0x04,
+   0x0f, 0x00, 0xf0, 0x0f, 0x73, 0x10, 0x24, 0x7b, 0x73, 0x24, 0x40, 0xf1,
+diff --git a/src/main/scala/devices/debug/DebugRomNonzeroContents.scala b/src/main/scala/devices/debug/DebugRomNonzeroContents.scala
+index 65be23ca1..de1f9d4ef 100644
+--- a/src/main/scala/devices/debug/DebugRomNonzeroContents.scala
++++ b/src/main/scala/devices/debug/DebugRomNonzeroContents.scala
+@@ -4,6 +4,7 @@ package freechips.rocketchip.devices.debug
+ 
+ object DebugRomNonzeroContents {
+ 
++  // another debug special code
+   def apply() : Array[Byte] = { Array (
+   0x73, 0x90, 0x34, 0x7b, 0x6f, 0x00, 0xc0, 0x00, 0xf3, 0x94, 0x34, 0x7b,
+   0x23, 0xa6, 0x04, 0x90, 0x0f, 0x00, 0xf0, 0x0f, 0x73, 0x10, 0x24, 0x7b,
+diff --git a/src/main/scala/devices/debug/DebugTransport.scala b/src/main/scala/devices/debug/DebugTransport.scala
+index 5b28567f9..8d8ed1d28 100644
+--- a/src/main/scala/devices/debug/DebugTransport.scala
++++ b/src/main/scala/devices/debug/DebugTransport.scala
+@@ -29,6 +29,9 @@ class JtagDTMKeyDefault extends JtagDTMConfig(
+   idcodeVersion = 0,
+   idcodePartNum = 0,
+   idcodeManufId = 0,
++  // WTF
++  // guess
++  // Fuck you
+   debugIdleCycles = 5) // Reasonable guess for synchronization.
+ 
+ object dtmJTAGAddrs {
+@@ -73,6 +76,7 @@ class SystemJTAGIO extends Bundle {
+   val version = Input(UInt(4.W))
+ }
+ 
++// here really create the FSM of DTM for JTAG
+ // Use the Chisel Name macro due to the bulk of this being inside a withClockAndReset block
+ @chiselName
+ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
+@@ -256,6 +260,8 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
+   idcode.partNumber := io.jtag_part_number
+   idcode.mfrId      := io.jtag_mfr_id
+ 
++  // tapIO is JtagBlockIO
++  // seperate different command to different path
+   val tapIO = JtagTapGenerator(irLength = 5,
+     instructions = Map(
+       dtmJTAGAddrs.DMI_ACCESS -> dmiAccessChain,
+diff --git a/src/main/scala/devices/debug/Periphery.scala b/src/main/scala/devices/debug/Periphery.scala
+index da2e3819f..7ff396981 100644
+--- a/src/main/scala/devices/debug/Periphery.scala
++++ b/src/main/scala/devices/debug/Periphery.scala
+@@ -74,12 +74,12 @@ trait HasPeripheryDebug { this: BaseSubsystem =>
+ 
+   val debugCustomXbarOpt = p(DebugModuleKey).map(params => LazyModule( new DebugCustomXbar(outputRequiresInput = false)))
+   val apbDebugNodeOpt = p(ExportDebug).apb.option(APBMasterNode(Seq(APBMasterPortParameters(Seq(APBMasterParameters("debugAPB"))))))
+-  val debugOpt = p(DebugModuleKey).map { params =>
++  val debugOpt = p(DebugModuleKey).map { params => // we create the debug module with DMI bus and TL bus
+     val debug = LazyModule(new TLDebugModule(tlbus.beatBytes))
+ 
+     LogicalModuleTree.add(logicalTreeNode, debug.logicalTreeNode)
+ 
+-    debug.node := tlbus.coupleTo("debug"){ TLFragmenter(tlbus) := _ }
++    debug.node := tlbus.coupleTo("debug"){ TLFragmenter(tlbus) := _ } // connect the debug module to system bus
+     debug.dmInner.dmInner.customNode := debugCustomXbarOpt.get.node
+ 
+     (apbDebugNodeOpt zip debug.apbNodeOpt) foreach { case (master, slave) =>
+@@ -96,7 +96,7 @@ trait HasPeripheryDebug { this: BaseSubsystem =>
+ }
+ 
+ trait HasPeripheryDebugModuleImp extends LazyModuleImp {
+-  val outer: HasPeripheryDebug
++  val outer: HasPeripheryDebug // DM is created here
+ 
+   val psd = IO(new PSDIO)
+ 
+@@ -109,6 +109,7 @@ trait HasPeripheryDebugModuleImp extends LazyModuleImp {
+     resetctrl
+   }
+ 
++  // here really create the DTM
+   // noPrefix is workaround https://github.com/freechipsproject/chisel3/issues/1603
+   val debug = noPrefix(outer.debugOpt.map { outerdebug =>
+     val debug = IO(new DebugIO)
+@@ -148,6 +149,7 @@ trait HasPeripheryDebugModuleImp extends LazyModuleImp {
+     debug
+   })
+ 
++  // if the systemjtag exist, create DTM for them
+   val dtm = debug.flatMap(_.systemjtag.map(instantiateJtagDTM(_)))
+ 
+   def instantiateJtagDTM(sj: SystemJTAGIO): DebugTransportModuleJTAG = {
+diff --git a/src/main/scala/devices/tilelink/CLINT.scala b/src/main/scala/devices/tilelink/CLINT.scala
+index 66eea9cbc..103334cac 100644
+--- a/src/main/scala/devices/tilelink/CLINT.scala
++++ b/src/main/scala/devices/tilelink/CLINT.scala
+@@ -105,10 +105,10 @@ class CLINT(params: CLINTParams, beatBytes: Int)(implicit p: Parameters) extends
+ /** Trait that will connect a CLINT to a subsystem */
+ trait CanHavePeripheryCLINT { this: BaseSubsystem =>
+   val clintOpt = p(CLINTKey).map { params =>
+-    val tlbus = locateTLBusWrapper(p(CLINTAttachKey).slaveWhere)
+-    val clint = LazyModule(new CLINT(params, cbus.beatBytes))
+-    LogicalModuleTree.add(logicalTreeNode, clint.logicalTreeNode)
+-    clint.node := tlbus.coupleTo("clint") { TLFragmenter(tlbus) := _ }
+-    clint
++    val tlbus = locateTLBusWrapper(p(CLINTAttachKey).slaveWhere) // get the tilelink bus
++    val clint = LazyModule(new CLINT(params, cbus.beatBytes)) // init a new clint module
++    LogicalModuleTree.add(logicalTreeNode, clint.logicalTreeNode) // add the logic tree
++    clint.node := tlbus.coupleTo("clint") { TLFragmenter(tlbus) := _ } // connect clint module to tilelink bus
++    clint // return this clint module with connect
+   }
+ }
+diff --git a/src/main/scala/devices/tilelink/Plic.scala b/src/main/scala/devices/tilelink/Plic.scala
+index bacb7b505..85c622763 100644
+--- a/src/main/scala/devices/tilelink/Plic.scala
++++ b/src/main/scala/devices/tilelink/Plic.scala
+@@ -179,7 +179,7 @@ class TLPLIC(params: PLICParams, beatBytes: Int)(implicit p: Parameters) extends
+     
+     val maxDevs = Reg(Vec(nHarts, UInt(width = log2Ceil(nDevices+1))))
+     val pendingUInt = Cat(pending.reverse)
+-    for (hart <- 0 until nHarts) {
++    for (hart <- 0 until nHarts) { // this like the generate statement on verilog and systemverilog
+       val fanin = Module(new PLICFanIn(nDevices, prioBits))
+       fanin.io.prio := priority
+       fanin.io.ip   := enableVec(hart) & pendingUInt
+diff --git a/src/main/scala/diplomacy/LazyModule.scala b/src/main/scala/diplomacy/LazyModule.scala
+index 06c95d611..e9a6d5eca 100644
+--- a/src/main/scala/diplomacy/LazyModule.scala
++++ b/src/main/scala/diplomacy/LazyModule.scala
+@@ -88,6 +88,7 @@ abstract class LazyModule()(implicit val p: Parameters) {
+   /** Instance name in verilog. Should only be accessed after circuit elaboration. */
+   lazy val instanceName: String = pathName.split('.').last
+ 
++  // here module need to be implement
+   /** [[chisel3]] hardware implementation of this [[LazyModule]].
+     *
+     * Subclasses should define this function as `lazy val`s for lazy evaluation.
+@@ -250,6 +251,7 @@ object LazyModule {
+   * This is the actual Chisel module that is lazily-evaluated in the second phase of Diplomacy.
+   */
+ sealed trait LazyModuleImpLike extends RawModule {
++  // here the chip wrapper, which is the lazymodule
+   /** [[LazyModule]] that contains this instance. */
+   val wrapper: LazyModule
+   /** IOs that will be automatically "punched" for this instance. */
+@@ -332,6 +334,7 @@ sealed trait LazyModuleImpLike extends RawModule {
+   *
+   * @param wrapper the [[LazyModule]] from which the `.module` call is being made.
+   */
++ // here, really convert the scala language to firrtl by using chisel3 library
+ class LazyModuleImp(val wrapper: LazyModule) extends MultiIOModule with LazyModuleImpLike {
+   /** Instantiate hardware of this `Module`. */
+   val (auto, dangles) = instantiate()
+diff --git a/src/main/scala/diplomaticobjectmodel/logicaltree/RocketLogicalTreeNode.scala b/src/main/scala/diplomaticobjectmodel/logicaltree/RocketLogicalTreeNode.scala
+index 10119229c..9d5db768a 100644
+--- a/src/main/scala/diplomaticobjectmodel/logicaltree/RocketLogicalTreeNode.scala
++++ b/src/main/scala/diplomaticobjectmodel/logicaltree/RocketLogicalTreeNode.scala
+@@ -85,6 +85,8 @@ class RocketLogicalTreeNode(
+     ))
+   }
+ 
++  // this OMComponent Seq is the basic skeleton of Rocket chip
++  // add other component into sequence if we need to add other module
+   override def getOMComponents(resourceBindings: ResourceBindings, components: Seq[OMComponent]): Seq[OMComponent] = {
+     val rocketParams = tile.rocketParams
+     val coreParams = rocketParams.core
+diff --git a/src/main/scala/jtag/JtagShifter.scala b/src/main/scala/jtag/JtagShifter.scala
+index fea94ab82..e13d7915b 100644
+--- a/src/main/scala/jtag/JtagShifter.scala
++++ b/src/main/scala/jtag/JtagShifter.scala
+@@ -124,6 +124,8 @@ object CaptureChain {
+   def apply[T <: Data](gen: T)(implicit p: Parameters) = new CaptureChain(gen)
+ }
+ 
++// the chapter number is actually from IEEE JTAG standard
++
+ /** Simple shift register with parallel capture and update. Useful for general instruction and data
+   * scan registers.
+   *
+@@ -138,8 +140,11 @@ class CaptureUpdateChain[+T <: Data, +V <: Data](genCapture: T, genUpdate: V)(im
+   class ModIO extends ChainIO {
+     val capture = Capture(genCapture)
+     val update = Valid(genUpdate)  // valid high when in update state (single cycle), contents may change any time after
++    //chainIn
++    //chainOut
+   }
+   val io = IO(new ModIO)
++  // function call statement script format
+   io.chainOut chainControlFrom io.chainIn
+ 
+   val captureWidth = DataMirror.widthOf(genCapture) match {
+@@ -161,9 +166,23 @@ class CaptureUpdateChain[+T <: Data, +V <: Data](genCapture: T, genUpdate: V)(im
+ 
+   val captureBits = io.capture.bits.asUInt()
+ 
++  // cover is from freechips.rocketchip.util.property._
++  // actually do nothing
+   cover(io.chainIn.capture, "chain_capture", "JTAG;chain_capture; This Chain captured data")
+   cover(io.chainIn.capture, "chain_update",  "JTAG;chain_update; This Chain updated data")
+ 
++  // make the data from parallel to serial
++  //                       |                        |
++  //    chainOut.data <----|--\                     |
++  //                       |  \<-[0].1....n-1 <<-x--|<----- capture.bits[0-(n-1)]
++  //                       |           |         |  |
++  //                       |           \---------|--|<----- chainIn.shift
++  //                       |                     |  |
++  //  capture.capture <----|------------------------|<----- chainIn.capture
++  //                       |                        |
++  //     update.valid <----|------------------------|<----- chainIn.update
++  //                       |                        |
++
+   when (io.chainIn.capture) {
+     (0 until math.min(n, captureWidth)) map (x => regs(x) := captureBits(x))
+     (captureWidth until n) map (x => regs(x) := 0.U)
+diff --git a/src/main/scala/jtag/JtagTap.scala b/src/main/scala/jtag/JtagTap.scala
+index ec5669c97..91c97d2af 100644
+--- a/src/main/scala/jtag/JtagTap.scala
++++ b/src/main/scala/jtag/JtagTap.scala
+@@ -54,6 +54,7 @@ class JtagControllerIO(irLength: Int) extends JtagBlockIO(irLength, false) {
+   override def cloneType = new JtagControllerIO(irLength).asInstanceOf[this.type]
+ }
+ 
++// outer JTAG controller
+ /** JTAG TAP controller internal block, responsible for instruction decode and data register chain
+   * control signal generation.
+   *
+diff --git a/src/main/scala/rocket/ALU.scala b/src/main/scala/rocket/ALU.scala
+index d9bbe9aa3..90bbcde76 100644
+--- a/src/main/scala/rocket/ALU.scala
++++ b/src/main/scala/rocket/ALU.scala
+@@ -12,11 +12,11 @@ object ALU
+   val SZ_ALU_FN = 4
+   def FN_X    = BitPat("b????")
+   def FN_ADD  = UInt(0)
+-  def FN_SL   = UInt(1)
++  def FN_SL   = UInt(1) // shift left
+   def FN_SEQ  = UInt(2)
+   def FN_SNE  = UInt(3)
+   def FN_XOR  = UInt(4)
+-  def FN_SR   = UInt(5)
++  def FN_SR   = UInt(5) // shift right
+   def FN_OR   = UInt(6)
+   def FN_AND  = UInt(7)
+   def FN_SUB  = UInt(10)
+diff --git a/src/main/scala/rocket/CSR.scala b/src/main/scala/rocket/CSR.scala
+index 517707b3d..ed2a04ada 100644
+--- a/src/main/scala/rocket/CSR.scala
++++ b/src/main/scala/rocket/CSR.scala
+@@ -119,10 +119,10 @@ object CSR
+   // commands
+   val SZ = 3
+   def X = BitPat.dontCare(SZ)
+-  def N = UInt(0,SZ)
+-  def R = UInt(2,SZ)
+-  def I = UInt(4,SZ)
+-  def W = UInt(5,SZ)
++  def N = UInt(0,SZ) // not CSR command
++  def R = UInt(2,SZ) // read
++  def I = UInt(4,SZ) // instrument
++  def W = UInt(5,SZ) // write
+   def S = UInt(6,SZ)
+   def C = UInt(7,SZ)
+ 
+diff --git a/src/main/scala/rocket/Frontend.scala b/src/main/scala/rocket/Frontend.scala
+index 26822ad6b..b510114d7 100644
+--- a/src/main/scala/rocket/Frontend.scala
++++ b/src/main/scala/rocket/Frontend.scala
+@@ -21,10 +21,10 @@ class FrontendReq(implicit p: Parameters) extends CoreBundle()(p) {
+ }
+ 
+ class FrontendExceptions extends Bundle {
+-  val pf = new Bundle {
++  val pf = new Bundle { // page fault
+     val inst = Bool()
+   }
+-  val ae = new Bundle {
++  val ae = new Bundle { // access error
+     val inst = Bool()
+   }
+ }
+@@ -81,7 +81,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
+   val icache = outer.icache.module
+   require(fetchWidth*coreInstBytes == outer.icacheParams.fetchBytes)
+ 
+-  val fq = withReset(reset || io.cpu.req.valid) { Module(new ShiftQueue(new FrontendResp, 5, flow = true)) }
++  val fq = withReset(reset || io.cpu.req.valid) { Module(new ShiftQueue(new FrontendResp, 5, flow = true)) } // this is that queue to output command to next stage
+ 
+   val clock_en_reg = Reg(Bool())
+   val clock_en = clock_en_reg || io.cpu.might_request
+@@ -112,7 +112,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
+   val s2_btb_resp_bits = Reg(new BTBResp)
+   val s2_btb_taken = s2_btb_resp_valid && s2_btb_resp_bits.taken
+   val s2_tlb_resp = Reg(tlb.io.resp)
+-  val s2_xcpt = s2_tlb_resp.ae.inst || s2_tlb_resp.pf.inst
++  val s2_xcpt = s2_tlb_resp.ae.inst || s2_tlb_resp.pf.inst // except include access error(ae) and prefetch(pf) ???
+   val s2_speculative = Reg(init=Bool(false))
+   val s2_partial_insn_valid = RegInit(false.B)
+   val s2_partial_insn = Reg(UInt(width = coreInstBits))
+@@ -123,8 +123,8 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
+   val predicted_npc = Wire(init = ntpc)
+   val predicted_taken = Wire(init = Bool(false))
+ 
+-  val s2_replay = Wire(Bool())
+-  s2_replay := (s2_valid && !fq.io.enq.fire()) || RegNext(s2_replay && !s0_valid, true.B)
++  val s2_replay = Wire(Bool()) // replay means that the pipeline need to stall and re-execute the pervious commands
++  s2_replay := (s2_valid && !fq.io.enq.fire()) || RegNext(s2_replay && !s0_valid, true.B) // queue is full, then replay,
+   val npc = Mux(s2_replay, s2_pc, predicted_npc)
+ 
+   s1_pc := io.cpu.npc
+@@ -146,16 +146,16 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
+ 
+   io.ptw <> tlb.io.ptw
+   tlb.io.req.valid := s1_valid && !s2_replay
+-  tlb.io.req.bits.vaddr := s1_pc
++  tlb.io.req.bits.vaddr := s1_pc // connect the pc to the TLB's input to make the va to pa convert
+   tlb.io.req.bits.passthrough := Bool(false)
+   tlb.io.req.bits.size := log2Ceil(coreInstBytes*fetchWidth)
+   tlb.io.sfence := io.cpu.sfence
+   tlb.io.kill := !s2_valid
+ 
+   icache.io.req.valid := s0_valid
+-  icache.io.req.bits.addr := io.cpu.npc
++  icache.io.req.bits.addr := io.cpu.npc // pc as addresss again
+   icache.io.invalidate := io.cpu.flush_icache
+-  icache.io.s1_paddr := tlb.io.resp.paddr
++  icache.io.s1_paddr := tlb.io.resp.paddr // connect the TLB output to icache input
+   icache.io.s2_vaddr := s2_pc
+   icache.io.s1_kill := s2_redirect || tlb.io.resp.miss || s2_replay
+   val s2_can_speculatively_refill = s2_tlb_resp.cacheable && !io.ptw.customCSRs.asInstanceOf[RocketCustomCSRs].disableSpeculativeICacheRefill
+@@ -166,7 +166,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
+   fq.io.enq.bits.pc := s2_pc
+   io.cpu.npc := alignPC(Mux(io.cpu.req.valid, io.cpu.req.bits.pc, npc))
+ 
+-  fq.io.enq.bits.data := icache.io.resp.bits.data
++  fq.io.enq.bits.data := icache.io.resp.bits.data // IQ data is from ICache
+   fq.io.enq.bits.mask := UInt((1 << fetchWidth)-1) << s2_pc.extract(log2Ceil(fetchWidth)+log2Ceil(coreInstBytes)-1, log2Ceil(coreInstBytes))
+   fq.io.enq.bits.replay := icache.io.resp.bits.replay || icache.io.s2_kill && !icache.io.resp.valid && !s2_xcpt
+   fq.io.enq.bits.btb := s2_btb_resp_bits
+@@ -322,7 +322,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
+     when (io.cpu.req.valid) { wrong_path := false }
+   }
+ 
+-  io.cpu.resp <> fq.io.deq
++  io.cpu.resp <> fq.io.deq // connect the IQ to outside(cpu pipeline)
+ 
+   // performance events
+   io.cpu.perf := icache.io.perf
+@@ -348,7 +348,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
+ trait HasICacheFrontend extends CanHavePTW { this: BaseTile =>
+   val module: HasICacheFrontendModule
+   val frontend = LazyModule(new Frontend(tileParams.icache.get, staticIdForMetadataUseOnly))
+-  tlMasterXbar.node := frontend.masterNode
++  tlMasterXbar.node := frontend.masterNode // connect the ICache to TL network
+   connectTLSlave(frontend.slaveNode, tileParams.core.fetchBytes)
+   frontend.icache.hartIdSinkNodeOpt.foreach { _ := hartIdNexusNode }
+   frontend.icache.mmioAddressPrefixSinkNodeOpt.foreach { _ := mmioAddressPrefixNexusNode }
+diff --git a/src/main/scala/rocket/HellaCache.scala b/src/main/scala/rocket/HellaCache.scala
+index 0b74d23f3..0387f0265 100644
+--- a/src/main/scala/rocket/HellaCache.scala
++++ b/src/main/scala/rocket/HellaCache.scala
+@@ -140,9 +140,9 @@ class AlignmentExceptions extends Bundle {
+ }
+ 
+ class HellaCacheExceptions extends Bundle {
+-  val ma = new AlignmentExceptions
+-  val pf = new AlignmentExceptions
+-  val ae = new AlignmentExceptions
++  val ma = new AlignmentExceptions // misalign
++  val pf = new AlignmentExceptions // page fault
++  val ae = new AlignmentExceptions // access error
+ }
+ 
+ class HellaCacheWriteData(implicit p: Parameters) extends CoreBundle()(p) with HasCoreData
+diff --git a/src/main/scala/rocket/HellaCacheArbiter.scala b/src/main/scala/rocket/HellaCacheArbiter.scala
+index b2b65e827..91c18d1d2 100644
+--- a/src/main/scala/rocket/HellaCacheArbiter.scala
++++ b/src/main/scala/rocket/HellaCacheArbiter.scala
+@@ -14,7 +14,7 @@ class HellaCacheArbiter(n: Int)(implicit p: Parameters) extends Module
+   }
+ 
+   if (n == 1) {
+-    io.mem <> io.requestor.head
++    io.mem <> io.requestor.head // head is the Vec's function
+   } else {
+     val s1_id = Reg(UInt())
+     val s2_id = Reg(next=s1_id)
+diff --git a/src/main/scala/rocket/IBuf.scala b/src/main/scala/rocket/IBuf.scala
+index 09652dc99..e770e6d11 100644
+--- a/src/main/scala/rocket/IBuf.scala
++++ b/src/main/scala/rocket/IBuf.scala
+@@ -18,6 +18,9 @@ class Instruction(implicit val p: Parameters) extends ParameterizedBundle with H
+   require(coreInstBits == (if (usingCompressed) 16 else 32))
+ }
+ 
++// maybe this should be part of frontend
++// put IBUF here in front of the core instead of frontend
++// maybe the consideration is compatible for superscalar
+ class IBuf(implicit p: Parameters) extends CoreModule {
+   val io = new Bundle {
+     val imem = Decoupled(new FrontendResp).flip
+@@ -32,7 +35,7 @@ class IBuf(implicit p: Parameters) extends CoreModule {
+ 
+   val n = fetchWidth - 1
+   val nBufValid = if (n == 0) UInt(0) else Reg(init=UInt(0, log2Ceil(fetchWidth)))
+-  val buf = Reg(io.imem.bits)
++  val buf = Reg(io.imem.bits) // this buffer is only one click register, not other supported elements
+   val ibufBTBResp = Reg(new BTBResp)
+   val pcWordMask = UInt(coreInstBytes*fetchWidth-1, vaddrBitsExtended)
+ 
+diff --git a/src/main/scala/rocket/ICache.scala b/src/main/scala/rocket/ICache.scala
+index 2463051fc..3a62d783a 100644
+--- a/src/main/scala/rocket/ICache.scala
++++ b/src/main/scala/rocket/ICache.scala
+@@ -38,7 +38,7 @@ case class ICacheParams(
+ }
+ 
+ trait HasL1ICacheParameters extends HasL1CacheParameters with HasCoreParameters {
+-  val cacheParams = tileParams.icache.get
++  val cacheParams = tileParams.icache.get // init the parameter in HasL1CacheParameters
+ }
+ 
+ class ICacheReq(implicit p: Parameters) extends CoreBundle()(p) with HasL1ICacheParameters {
+@@ -112,6 +112,8 @@ class ICachePerfEvents extends Bundle {
+ }
+ 
+ class ICacheBundle(val outer: ICache) extends CoreBundle()(outer.p) {
++  // from frontend inside
++  // data and control signal
+   val req = Decoupled(new ICacheReq).flip
+   val s1_paddr = UInt(INPUT, paddrBits) // delayed one cycle w.r.t. req
+   val s2_vaddr = UInt(INPUT, vaddrBits) // delayed two cycles w.r.t. req
+@@ -119,9 +121,11 @@ class ICacheBundle(val outer: ICache) extends CoreBundle()(outer.p) {
+   val s2_kill = Bool(INPUT) // delayed two cycles; prevents I$ miss emission
+   val s2_prefetch = Bool(INPUT) // should I$ prefetch next line on a miss?
+ 
++  // to cpu or from cpu
+   val resp = Valid(new ICacheResp(outer))
+   val invalidate = Bool(INPUT)
+ 
++  // status
+   val errors = new ICacheErrors
+   val perf = new ICachePerfEvents().asOutput
+ 
+@@ -283,6 +287,8 @@ class ICacheModule(outer: ICache) extends LazyModuleImp(outer)
+     def row(addr: UInt) = addr(untagBits-1, blockOffBits-log2Ceil(refillCycles))
+     val s0_ren = (s0_valid && wordMatch(s0_vaddr)) || (s0_slaveValid && wordMatch(s0_slaveAddr))
+     val wen = (refill_one_beat && !invalidated) || (s3_slaveValid && wordMatch(s1s3_slaveAddr))
++    // see lowRISC/rocket-chip have this in it and revert on new rocketchip
++    // && lineInScratchpad(scratchpadLine(s1s3_slaveAddr))
+     val mem_idx = Mux(refill_one_beat, (refill_idx << log2Ceil(refillCycles)) | refill_cnt,
+                   Mux(s3_slaveValid, row(s1s3_slaveAddr),
+                   Mux(s0_slaveValid, row(s0_slaveAddr),
+diff --git a/src/main/scala/rocket/IDecode.scala b/src/main/scala/rocket/IDecode.scala
+index 9dd40a977..00aefa11b 100644
+--- a/src/main/scala/rocket/IDecode.scala
++++ b/src/main/scala/rocket/IDecode.scala
+@@ -17,34 +17,34 @@ abstract trait DecodeConstants extends HasCoreParameters
+ }
+ 
+ class IntCtrlSigs extends Bundle {
+-  val legal = Bool()
+-  val fp = Bool()
+-  val rocc = Bool()
+-  val branch = Bool()
+-  val jal = Bool()
+-  val jalr = Bool()
+-  val rxs2 = Bool()
+-  val rxs1 = Bool()
+-  val scie = Bool()
++  val legal = Bool() // legal or illegal
++  val fp = Bool() // is float point cmd or not
++  val rocc = Bool() // is rocc cmd or not
++  val branch = Bool() // branch cmd or not
++  val jal = Bool() // jal cmd or not (jump and link)
++  val jalr = Bool() // jalr cmd or not (jump and link register)
++  val rxs2 = Bool() // use integer register 2
++  val rxs1 = Bool() // use integer register 1
++  val scie = Bool() // simple custom instrument extend
+   val sel_alu2 = Bits(width = A2_X.getWidth)
+   val sel_alu1 = Bits(width = A1_X.getWidth)
+   val sel_imm = Bits(width = IMM_X.getWidth)
+   val alu_dw = Bool()
+   val alu_fn = Bits(width = FN_X.getWidth)
+-  val mem = Bool()
++  val mem = Bool() // memory related command or not, load and store
+   val mem_cmd = Bits(width = M_SZ)
+-  val rfs1 = Bool()
+-  val rfs2 = Bool()
+-  val rfs3 = Bool()
+-  val wfd = Bool()
+-  val mul = Bool()
+-  val div = Bool()
+-  val wxd = Bool()
++  val rfs1 = Bool() // use float point register 1
++  val rfs2 = Bool() // use float point register 2
++  val rfs3 = Bool() // use float point register 3
++  val wfd = Bool() // write float register or not
++  val mul = Bool() // is multiply cmd or not
++  val div = Bool() // is divide cmd or not
++  val wxd = Bool() // write integer register or not
+   val csr = Bits(width = CSR.SZ)
+-  val fence_i = Bool()
++  val fence_i = Bool() // fence.i cmd
+   val fence = Bool()
+-  val amo = Bool()
+-  val dp = Bool()
++  val amo = Bool() // AMO cmd
++  val dp = Bool() // is double point or not
+ 
+   def default: List[BitPat] =
+                 //           jal                                                             renf1               fence.i
+diff --git a/src/main/scala/rocket/PTW.scala b/src/main/scala/rocket/PTW.scala
+index 469eadb54..7a7057b3b 100644
+--- a/src/main/scala/rocket/PTW.scala
++++ b/src/main/scala/rocket/PTW.scala
+@@ -35,7 +35,7 @@ class TLBPTWIO(implicit p: Parameters) extends CoreBundle()(p)
+   val resp = Valid(new PTWResp).flip
+   val ptbr = new PTBR().asInput
+   val status = new MStatus().asInput
+-  val pmp = Vec(nPMPs, new PMP).asInput
++  val pmp = Vec(nPMPs, new PMP).asInput // physical memeory protect
+   val customCSRs = coreParams.customCSRs.asInput
+ }
+ 
+@@ -60,14 +60,14 @@ class DatapathPTWIO(implicit p: Parameters) extends CoreBundle()(p)
+ class PTE(implicit p: Parameters) extends CoreBundle()(p) {
+   val ppn = UInt(width = 54)
+   val reserved_for_software = Bits(width = 2)
+-  val d = Bool()
+-  val a = Bool()
+-  val g = Bool()
+-  val u = Bool()
+-  val x = Bool()
+-  val w = Bool()
+-  val r = Bool()
+-  val v = Bool()
++  val d = Bool() // dirty
++  val a = Bool() // accessed
++  val g = Bool() // global page
++  val u = Bool() // user/supervisor
++  val x = Bool() // executable
++  val w = Bool() // writeable
++  val r = Bool() // readable
++  val v = Bool() // verified?
+ 
+   def table(dummy: Int = 0) = v && !r && !w && !x
+   def leaf(dummy: Int = 0) = v && (r || (x && !w)) && a
+@@ -171,7 +171,7 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
+ 
+   val (pte_cache_hit, pte_cache_data) = {
+     val size = 1 << log2Up(pgLevels * 2)
+-    val plru = new PseudoLRU(size)
++    val plru = new PseudoLRU(size) // the PTW using the PLRU algorithm to replace while not hit
+     val valid = RegInit(0.U(size.W))
+     val tags = Reg(Vec(size, UInt(width = paddrBits)))
+     val data = Reg(Vec(size, UInt(width = ppnBits)))
+@@ -405,7 +405,7 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
+ trait CanHavePTW extends HasTileParameters with HasHellaCache { this: BaseTile =>
+   val module: CanHavePTWModule
+   val utlbOMSRAMs = collection.mutable.ListBuffer[OMSRAM]()
+-  var nPTWPorts = 1
++  var nPTWPorts = 1 // we don't use this parameters to control connect to core
+   nDCachePorts += usingPTW.toInt
+ }
+ 
+@@ -413,7 +413,7 @@ trait CanHavePTWModule extends HasHellaCacheModule {
+   val outer: CanHavePTW
+   val ptwPorts = ListBuffer(outer.dcache.module.io.ptw)
+   val ptw = Module(new PTW(outer.nPTWPorts)(outer.dcache.node.edges.out(0), outer.p))
+-  if (outer.usingPTW) {
++  if (outer.usingPTW) { // here usingPTW control the init
+     dcachePorts += ptw.io.mem
+     outer.utlbOMSRAMs ++= ptw.omSRAMs
+   }
+diff --git a/src/main/scala/rocket/RocketCore.scala b/src/main/scala/rocket/RocketCore.scala
+index ee1749dbd..49f123cad 100644
+--- a/src/main/scala/rocket/RocketCore.scala
++++ b/src/main/scala/rocket/RocketCore.scala
+@@ -101,6 +101,7 @@ class RocketCustomCSRs(implicit p: Parameters) extends CustomCSRs with HasRocket
+   override def decls = super.decls :+ marchid :+ mvendorid :+ mimpid
+ }
+ 
++// the 5 stages core here
+ @chiselName
+ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+     with HasRocketCoreParameters
+@@ -182,13 +183,15 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+     Seq(new IDecode)
+   } flatMap(_.table)
+ 
++  // this IntCtrlSigs class is very important concept which
++  // help us to understand the pipeline
+   val ex_ctrl = Reg(new IntCtrlSigs)
+   val mem_ctrl = Reg(new IntCtrlSigs)
+   val wb_ctrl = Reg(new IntCtrlSigs)
+ 
+-  val ex_reg_xcpt_interrupt  = Reg(Bool())
++  val ex_reg_xcpt_interrupt  = Reg(Bool()) // except interrupt
+   val ex_reg_valid           = Reg(Bool())
+-  val ex_reg_rvc             = Reg(Bool())
++  val ex_reg_rvc             = Reg(Bool()) // riscv compress command
+   val ex_reg_btb_resp        = Reg(new BTBResp)
+   val ex_reg_xcpt            = Reg(Bool())
+   val ex_reg_flush_pipe      = Reg(Bool())
+@@ -250,13 +253,13 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   val id_expanded_inst = ibuf.io.inst.map(_.bits.inst)
+   val id_raw_inst = ibuf.io.inst.map(_.bits.raw)
+   val id_inst = id_expanded_inst.map(_.bits)
+-  ibuf.io.imem <> io.imem.resp
++  ibuf.io.imem <> io.imem.resp // connect the frontend IQ to IBuf
+   ibuf.io.kill := take_pc
+ 
+   require(decodeWidth == 1 /* TODO */ && retireWidth == decodeWidth)
+   require(!(coreParams.useRVE && coreParams.fpu.nonEmpty), "Can't select both RVE and floating-point")
+   val id_ctrl = Wire(new IntCtrlSigs()).decode(id_inst(0), decode_table)
+-  val lgNXRegs = if (coreParams.useRVE) 4 else 5
++  val lgNXRegs = if (coreParams.useRVE) 4 else 5 // Embedded, 16 GPRs or 32 GPRs
+   val regAddrMask = (1 << lgNXRegs) - 1
+ 
+   def decodeReg(x: UInt) = (x.extract(x.getWidth-1, lgNXRegs).asBool, x(lgNXRegs-1, 0))
+@@ -269,7 +272,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   val id_reg_fence = Reg(init=Bool(false))
+   val id_ren = IndexedSeq(id_ctrl.rxs1, id_ctrl.rxs2)
+   val id_raddr = IndexedSeq(id_raddr1, id_raddr2)
+-  val rf = new RegFile(regAddrMask, xLen)
++  val rf = new RegFile(regAddrMask, xLen) // the GPRs (General Purpose Register)
+   val id_rs = id_raddr.map(rf.read _)
+   val ctrl_killd = Wire(Bool())
+   val id_npc = (ibuf.io.pc.asSInt + ImmGen(IMM_UJ, id_inst(0))).asUInt
+@@ -282,6 +285,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   val id_sfence = id_ctrl.mem && id_ctrl.mem_cmd === M_SFENCE
+   val id_csr_flush = id_sfence || id_system_insn || (id_csr_en && !id_csr_ren && csr.io.decode(0).write_flush)
+ 
++  // scie means Simple Custom Instrument Extend
+   val id_scie_decoder = if (!rocketParams.useSCIE) Wire(new SCIEDecoderInterface) else {
+     val d = Module(new SCIEDecoder)
+     assert(PopCount(d.io.unpipelined :: d.io.pipelined :: d.io.multicycle :: Nil) <= 1)
+@@ -369,14 +373,16 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   val ex_rs = for (i <- 0 until id_raddr.size)
+     yield Mux(ex_reg_rs_bypass(i), bypass_mux(ex_reg_rs_lsb(i)), Cat(ex_reg_rs_msb(i), ex_reg_rs_lsb(i)))
+   val ex_imm = ImmGen(ex_ctrl.sel_imm, ex_reg_inst)
+-  val ex_op1 = MuxLookup(ex_ctrl.sel_alu1, SInt(0), Seq(
++  val ex_op1 = MuxLookup(ex_ctrl.sel_alu1, SInt(0), Seq( // operand 1
+     A1_RS1 -> ex_rs(0).asSInt,
+     A1_PC -> ex_reg_pc.asSInt))
+-  val ex_op2 = MuxLookup(ex_ctrl.sel_alu2, SInt(0), Seq(
++  val ex_op2 = MuxLookup(ex_ctrl.sel_alu2, SInt(0), Seq( // operand 2
+     A2_RS2 -> ex_rs(1).asSInt,
+     A2_IMM -> ex_imm,
+     A2_SIZE -> Mux(ex_reg_rvc, SInt(2), SInt(4))))
+ 
++  // new a ALU module
++  // and connect the control signal to the it
+   val alu = Module(new ALU)
+   alu.io.dw := ex_ctrl.alu_dw
+   alu.io.fn := ex_ctrl.alu_fn
+@@ -420,8 +426,10 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   ex_reg_xcpt := !ctrl_killd && id_xcpt
+   ex_reg_xcpt_interrupt := !take_pc && ibuf.io.inst(0).valid && csr.io.interrupt
+ 
++  // main control of the execute stage
++  // also connect the decode stage data to this stage
+   when (!ctrl_killd) {
+-    ex_ctrl := id_ctrl
++    ex_ctrl := id_ctrl // control signal move to next stage
+     ex_reg_rvc := ibuf.io.inst(0).bits.rvc
+     ex_ctrl.csr := id_csr
+     ex_scie_unpipelined := id_ctrl.scie && id_scie_decoder.unpipelined
+@@ -474,7 +482,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   }
+   when (!ctrl_killd || csr.io.interrupt || ibuf.io.inst(0).bits.replay) {
+     ex_reg_cause := id_cause
+-    ex_reg_inst := id_inst(0)
++    ex_reg_inst := id_inst(0) // connect ID -> EX
+     ex_reg_raw_inst := id_raw_inst(0)
+     ex_reg_pc := ibuf.io.pc
+     ex_reg_btb_resp := ibuf.io.btb_resp
+@@ -511,7 +519,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+     Mux(ibuf.io.inst(0).valid || ibuf.io.imem.valid, mem_npc =/= ibuf.io.pc, Bool(true)))
+   val mem_npc_misaligned = !csr.io.status.isa('c'-'a') && mem_npc(1) && !mem_reg_sfence
+   val mem_int_wdata = Mux(!mem_reg_xcpt && (mem_ctrl.jalr ^ mem_npc_misaligned), mem_br_target, mem_reg_wdata.asSInt).asUInt
+-  val mem_cfi = mem_ctrl.branch || mem_ctrl.jalr || mem_ctrl.jal
++  val mem_cfi = mem_ctrl.branch || mem_ctrl.jalr || mem_ctrl.jal // cfi abbreviation for Control Flow Instrument
+   val mem_cfi_taken = (mem_ctrl.branch && mem_br_taken) || mem_ctrl.jalr || mem_ctrl.jal
+   val mem_direction_misprediction = mem_ctrl.branch && mem_br_taken =/= (usingBTB && mem_reg_btb_resp.taken)
+   val mem_misprediction = if (usingBTB) mem_wrong_npc else mem_cfi_taken
+@@ -527,7 +535,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   when (mem_reg_valid && mem_reg_flush_pipe) {
+     mem_reg_sfence := false
+   }.elsewhen (ex_pc_valid) {
+-    mem_ctrl := ex_ctrl
++    mem_ctrl := ex_ctrl // control signal move to next stage
+     mem_scie_unpipelined := ex_scie_unpipelined
+     mem_scie_pipelined := ex_scie_pipelined
+     mem_reg_rvc := ex_reg_rvc
+@@ -589,7 +597,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   wb_reg_xcpt := mem_xcpt && !take_pc_wb
+   wb_reg_flush_pipe := !ctrl_killm && mem_reg_flush_pipe
+   when (mem_pc_valid) {
+-    wb_ctrl := mem_ctrl
++    wb_ctrl := mem_ctrl // ctrl signal move to next stage
+     wb_reg_sfence := mem_reg_sfence
+     wb_reg_wdata := Mux(mem_scie_pipelined, mem_scie_pipelined_wdata,
+       Mux(!mem_reg_xcpt && mem_ctrl.fp && mem_ctrl.wxd, io.fpu.toint_data, mem_int_wdata))
+@@ -664,7 +672,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+ 
+   val wb_valid = wb_reg_valid && !replay_wb && !wb_xcpt
+   val wb_wen = wb_valid && wb_ctrl.wxd
+-  val rf_wen = wb_wen || ll_wen
++  val rf_wen = wb_wen || ll_wen // rf for register file, ll for Long Lantency
+   val rf_waddr = Mux(ll_wen, ll_waddr, wb_waddr)
+   val rf_wdata = Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.data(xLen-1, 0),
+                  Mux(ll_wen, ll_wdata,
+@@ -687,7 +695,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   io.fpu.time := csr.io.time(31,0)
+   io.fpu.hartid := io.hartid
+   csr.io.rocc_interrupt := io.rocc.interrupt
+-  csr.io.pc := wb_reg_pc
++  csr.io.pc := wb_reg_pc // the pc in csr is the wb stage PC
+   val tval_valid = wb_xcpt && wb_cause.isOneOf(Causes.illegal_instruction, Causes.breakpoint,
+     Causes.misaligned_load, Causes.misaligned_store,
+     Causes.load_access, Causes.store_access, Causes.fetch_access,
+@@ -778,6 +786,17 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+     io.traceStall
+   ctrl_killd := !ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld || csr.io.interrupt
+ 
++  // ============================================
++  //   above is the 5 stage core main implment
++  //   ----------------------------------------
++  //   below is the assist component connection
++  //   like: dcache = dmem
++  //         icache = imem
++  //         fpu = float point unit
++  //         rocc = accerlator or other unit
++  //         etc...
++  // ============================================
++
+   io.imem.req.valid := take_pc
+   io.imem.req.bits.speculative := !take_pc_wb
+   io.imem.req.bits.pc :=
+@@ -796,7 +815,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
+   io.imem.sfence.bits.asid := wb_reg_rs2
+   io.ptw.sfence := io.imem.sfence
+ 
+-  ibuf.io.inst(0).ready := !ctrl_stalld
++  ibuf.io.inst(0).ready := !ctrl_stalld // not stall means we continue to get instrument
+ 
+   io.imem.btb_update.valid := mem_reg_valid && !take_pc_wb && mem_wrong_npc && (!mem_cfi || mem_cfi_taken)
+   io.imem.btb_update.bits.isValid := mem_cfi
+diff --git a/src/main/scala/rocket/TLB.scala b/src/main/scala/rocket/TLB.scala
+index fbb2d1484..b80f477dc 100644
+--- a/src/main/scala/rocket/TLB.scala
++++ b/src/main/scala/rocket/TLB.scala
+@@ -27,7 +27,7 @@ class SFenceReq(implicit p: Parameters) extends CoreBundle()(p) {
+ }
+ 
+ class TLBReq(lgMaxSize: Int)(implicit p: Parameters) extends CoreBundle()(p) {
+-  val vaddr = UInt(width = vaddrBitsExtended)
++  val vaddr = UInt(width = vaddrBitsExtended) // visual address
+   val passthrough = Bool()
+   val size = UInt(width = log2Ceil(lgMaxSize + 1))
+   val cmd  = Bits(width = M_SZ)
+@@ -44,10 +44,10 @@ class TLBExceptions extends Bundle {
+ class TLBResp(implicit p: Parameters) extends CoreBundle()(p) {
+   // lookup responses
+   val miss = Bool()
+-  val paddr = UInt(width = paddrBits)
++  val paddr = UInt(width = paddrBits) // physical address
+   val pf = new TLBExceptions
+   val ae = new TLBExceptions
+-  val ma = new TLBExceptions
++  val ma = new TLBExceptions // misalign
+   val cacheable = Bool()
+   val must_alloc = Bool()
+   val prefetchable = Bool()
+@@ -55,7 +55,7 @@ class TLBResp(implicit p: Parameters) extends CoreBundle()(p) {
+ 
+ class TLBEntryData(implicit p: Parameters) extends CoreBundle()(p) {
+   val ppn = UInt(width = ppnBits)
+-  val u = Bool()
++  val u = Bool() // user ?
+   val g = Bool()
+   val ae = Bool()
+   val sw = Bool()
+@@ -68,16 +68,19 @@ class TLBEntryData(implicit p: Parameters) extends CoreBundle()(p) {
+   val pal = Bool() // AMO logical
+   val paa = Bool() // AMO arithmetic
+   val eff = Bool() // get/put effects
+-  val c = Bool()
++  val c = Bool() // clean ?
+   val fragmented_superpage = Bool()
+ }
+ 
++// the TLB inside behavior, main functions like visual address to physical address, judge hit or miss
+ class TLBEntry(val nSectors: Int, val superpage: Boolean, val superpageOnly: Boolean)(implicit p: Parameters) extends CoreBundle()(p) {
+   require(nSectors == 1 || !superpage)
+   require(!superpageOnly || superpage)
+ 
+-  val level = UInt(width = log2Ceil(pgLevels))
+-  val tag = UInt(width = vpnBits)
++  //PgLevels => if (site(XLen) == 64) 3 /* Sv39 */ else 2 /* Sv32 */
++  //pgLevels = p(PgLevels)
++  val level = UInt(width = log2Ceil(pgLevels)) // pgLevels is from CoreBundle which contain parameters setting
++  val tag = UInt(width = vpnBits) // vpn: visual page number
+   val data = Vec(nSectors, UInt(width = new TLBEntryData().getWidth))
+   val valid = Vec(nSectors, Bool())
+   def entry_data = data.map(_.asTypeOf(new TLBEntryData))
+@@ -100,7 +103,7 @@ class TLBEntry(val nSectors: Int, val superpage: Boolean, val superpageOnly: Boo
+       valid(idx) && sectorTagMatch(vpn)
+     }
+   }
+-  def ppn(vpn: UInt) = {
++  def ppn(vpn: UInt) = { // physical page number
+     val data = getData(vpn)
+     if (superpage && usingVM) {
+       var res = data.ppn >> pgLevelBits*(pgLevels - 1)
+@@ -146,7 +149,7 @@ class TLBEntry(val nSectors: Int, val superpage: Boolean, val superpageOnly: Boo
+ 
+ case class TLBConfig(
+     nSets: Int,
+-    nWays: Int,
++    nWays: Int, // ways is the positions avariable for each fixed physical memeory
+     nSectors: Int = 4,
+     nSuperpageEntries: Int = 4)
+ 
+@@ -162,7 +165,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
+   val pageGranularityPMPs = pmpGranularity >= (1 << pgIdxBits)
+   val vpn = io.req.bits.vaddr(vaddrBits-1, pgIdxBits)
+   val memIdx = vpn.extract(cfg.nSectors.log2 + cfg.nSets.log2 - 1, cfg.nSectors.log2)
+-  val sectored_entries = Reg(Vec(cfg.nSets, Vec(cfg.nWays / cfg.nSectors, new TLBEntry(cfg.nSectors, false, false))))
++  val sectored_entries = Reg(Vec(cfg.nSets, Vec(cfg.nWays / cfg.nSectors, new TLBEntry(cfg.nSectors, false, false)))) // apart to more hierarchy
+   val superpage_entries = Reg(Vec(cfg.nSuperpageEntries, new TLBEntry(1, true, true)))
+   val special_entry = (!pageGranularityPMPs).option(Reg(new TLBEntry(1, true, false)))
+   def ordinary_entries = sectored_entries(memIdx) ++ superpage_entries
+@@ -177,7 +180,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
+   val r_sectored_hit_addr = Reg(UInt(log2Ceil(sectored_entries(0).size).W))
+   val r_sectored_hit = Reg(Bool())
+ 
+-  val priv = if (instruction) io.ptw.status.prv else io.ptw.status.dprv
++  val priv = if (instruction) io.ptw.status.prv else io.ptw.status.dprv // use different privelge
+   val priv_s = priv(0)
+   val priv_uses_vm = priv <= PRV.S
+   val vm_enabled = Bool(usingVM) && io.ptw.ptbr.mode(io.ptw.ptbr.mode.getWidth-1) && priv_uses_vm && !io.req.bits.passthrough
+@@ -239,7 +242,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
+ 
+     when (special_entry.nonEmpty && !io.ptw.resp.bits.homogeneous) {
+       special_entry.foreach { e =>
+-        e.insert(r_refill_tag, io.ptw.resp.bits.level, newEntry)
++        e.insert(r_refill_tag, io.ptw.resp.bits.level, newEntry) // call insert behavior to fill the entry
+         when (invalidate_refill) { e.invalidate() }
+       }
+     }.elsewhen (io.ptw.resp.bits.level < pgLevels-1) {
+@@ -291,6 +294,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
+     }).orR
+   }
+ 
++  // load reserved/store conditional
+   val cmd_lrsc = Bool(usingAtomics) && io.req.bits.cmd.isOneOf(M_XLR, M_XSC)
+   val cmd_amo_logical = Bool(usingAtomics) && isAMOLogical(io.req.bits.cmd)
+   val cmd_amo_arithmetic = Bool(usingAtomics) && isAMOArithmetic(io.req.bits.cmd)
+@@ -358,6 +362,7 @@ class TLB(instruction: Boolean, lgMaxSize: Int, cfg: TLBConfig)(implicit edge: T
+   io.ptw.req.bits.valid := !io.kill
+   io.ptw.req.bits.bits.addr := r_refill_tag
+ 
++  // real FSM here
+   if (usingVM) {
+     val sfence = io.sfence.valid
+     when (io.req.fire() && tlb_miss) {
+diff --git a/src/main/scala/scie/SCIE.scala b/src/main/scala/scie/SCIE.scala
+index a9e46f51a..a676c67b6 100644
+--- a/src/main/scala/scie/SCIE.scala
++++ b/src/main/scala/scie/SCIE.scala
+@@ -11,6 +11,7 @@ object SCIE {
+   val iLen = 32
+ }
+ 
++// SCIE means simple custom instrument extend
+ class SCIEDecoderInterface extends Bundle {
+   val insn = Input(UInt(SCIE.iLen.W))
+   val unpipelined = Output(Bool())
+diff --git a/src/main/scala/stage/phases/PreElaboration.scala b/src/main/scala/stage/phases/PreElaboration.scala
+index add679c1b..8fe3f1b13 100644
+--- a/src/main/scala/stage/phases/PreElaboration.scala
++++ b/src/main/scala/stage/phases/PreElaboration.scala
+@@ -25,6 +25,8 @@ class PreElaboration extends Phase with PreservesAll[Phase] with HasRocketChipSt
+ 
+     val config = getConfig(rOpts.configNames.get)
+ 
++    // !!!!!!!!! hi, we get the method to generate the module which WITH config HERE !!!!!!
++    // call like ExampleRocketSystem(DefaultConfig)
+     val gen = () =>
+       topMod
+         .getConstructor(classOf[Parameters])
+diff --git a/src/main/scala/subsystem/BaseSubsystem.scala b/src/main/scala/subsystem/BaseSubsystem.scala
+index c5a5ba612..a669222a4 100644
+--- a/src/main/scala/subsystem/BaseSubsystem.scala
++++ b/src/main/scala/subsystem/BaseSubsystem.scala
+@@ -27,6 +27,7 @@ abstract class BareSubsystem(implicit p: Parameters) extends LazyModule with Bin
+   lazy val json = JSON(bindingTree)
+ }
+ 
++// LazyModuleImp actually convert the system using instantiate
+ abstract class BareSubsystemModuleImp[+L <: BareSubsystem](_outer: L) extends LazyModuleImp(_outer) {
+   val outer = _outer
+   ElaborationArtefacts.add("graphml", outer.graphML)
+@@ -68,6 +69,8 @@ trait HasConfigurableTLNetworkTopology { this: HasTileLinkLocations =>
+   lazy val topManagers = tlBusWrapperLocationMap(p(TLManagerViewpointLocated(location))).unifyManagers
+ }
+ 
++// the bus architecture is from here
++// for different bus architecture, need to modify this
+ /** Base Subsystem class with no peripheral devices, ports or cores added yet */
+ abstract class BaseSubsystem(val location: HierarchicalLocation = InSubsystem)
+                             (implicit p: Parameters)
+diff --git a/src/main/scala/subsystem/Configs.scala b/src/main/scala/subsystem/Configs.scala
+index e7d4c626c..d226c7ceb 100644
+--- a/src/main/scala/subsystem/Configs.scala
++++ b/src/main/scala/subsystem/Configs.scala
+@@ -27,7 +27,7 @@ class BaseSubsystemConfig extends Config ((site, here, up) => {
+     errorDevice = Some(BuiltInErrorDeviceParams(
+       errorParams = DevNullParams(List(AddressSet(0x3000, 0xfff)), maxAtomic=site(XLen)/8, maxTransfer=4096))))
+   case PeripheryBusKey => PeripheryBusParams(
+-    beatBytes = site(XLen)/8,
++    beatBytes = 4 //site(XLen)/8,
+     blockBytes = site(CacheBlockBytes),
+     dtsFrequency = Some(100000000)) // Default to 100 MHz pbus clock
+   case MemoryBusKey => MemoryBusParams(
+@@ -82,7 +82,7 @@ class WithNBigCores(n: Int, overrideIdOffset: Option[Int] = None) extends Config
+   case RocketTilesKey => {
+     val prev = up(RocketTilesKey, site)
+     val idOffset = overrideIdOffset.getOrElse(prev.size)
+-    val big = RocketTileParams(
++    val big = RocketTileParams( // tile is created in this parameter
+       core   = RocketCoreParams(mulDiv = Some(MulDivParams(
+         mulUnroll = 8,
+         mulEarlyOut = true,
+@@ -346,6 +346,7 @@ class WithEdgeDataBits(dataBits: Int) extends Config((site, here, up) => {
+ 
+ class WithJtagDTM extends Config ((site, here, up) => {
+   case ExportDebug => up(ExportDebug, site).copy(protocols = Set(JTAG))
++  // still need to config the JtagDTMKey
+ })
+ 
+ class WithDebugAPB extends Config ((site, here, up) => {
+@@ -388,8 +389,8 @@ class WithTimebase(hertz: BigInt) extends Config((site, here, up) => {
+ 
+ class WithDefaultMemPort extends Config((site, here, up) => {
+   case ExtMem => Some(MemoryPortParams(MasterPortParams(
+-                      base = x"8000_0000",
+-                      size = x"1000_0000",
++                      base = x"6000_0000",
++                      size = x"2000_0000",
+                       beatBytes = site(MemoryBusKey).beatBytes,
+                       idBits = 4), 1))
+ })
+@@ -400,9 +401,9 @@ class WithNoMemPort extends Config((site, here, up) => {
+ 
+ class WithDefaultMMIOPort extends Config((site, here, up) => {
+   case ExtBus => Some(MasterPortParams(
+-                      base = x"6000_0000",
+-                      size = x"2000_0000",
+-                      beatBytes = site(MemoryBusKey).beatBytes,
++                      base = x"8000_0000",
++                      size = x"8000_0000",
++                      beatBytes = site(PeripheryBusKey).beatBytes,
+                       idBits = 4))
+ })
+ 
+diff --git a/src/main/scala/subsystem/HasTiles.scala b/src/main/scala/subsystem/HasTiles.scala
+index aa9eb8d6d..8a8586654 100644
+--- a/src/main/scala/subsystem/HasTiles.scala
++++ b/src/main/scala/subsystem/HasTiles.scala
+@@ -218,9 +218,9 @@ trait HasTileNotificationSinks { this: LazyModule =>
+   */
+ trait DefaultTileContextType
+   extends Attachable
+-  with HasTileInterruptSources
++  with HasTileInterruptSources // this trait connect all other periphery
+   with HasTileNotificationSinks
+-  with HasTileInputConstants
++  with HasTileInputConstants // this trait connect a BOOTROM
+ { this: BaseSubsystem => } // TODO: ideally this bound would be softened to LazyModule
+ 
+ /** Standardized interface by which parameterized tiles can be attached to contexts containing interconnect resources.
+@@ -239,7 +239,7 @@ trait CanAttachTile {
+   /** Narrow waist through which all tiles are intended to pass while being instantiated. */
+   def instantiate(implicit p: Parameters): TilePRCIDomain[TileType] = {
+     val tile_prci_domain = LazyModule(new TilePRCIDomain[TileType](tileParams.hartId) {
+-      val tile = LazyModule(tileParams.instantiate(crossingParams, lookup))
++      val tile = LazyModule(tileParams.instantiate(crossingParams, lookup)) // no need to be rocket tile param, other is ok
+     })
+     tile_prci_domain
+   }
+@@ -248,7 +248,7 @@ trait CanAttachTile {
+   def connect(domain: TilePRCIDomain[TileType], context: TileContextType): Unit = {
+     connectMasterPorts(domain, context)
+     connectSlavePorts(domain, context)
+-    connectInterrupts(domain, context)
++    connectInterrupts(domain, context) // we connect the intNode to tile here
+     connectPRC(domain, context)
+     connectOutputNotifications(domain.tile, context)
+     connectInputConstants(domain.tile, context)
+@@ -372,10 +372,11 @@ trait InstantiatesTiles { this: BaseSubsystem =>
+     * Note that these ids, which are often used as the tiles' default hartid input,
+     * may or may not be those actually reflected at runtime in e.g. the $mhartid CSR
+     */
++  // the tiles is firstly created by this parameters
+   val tileAttachParams: Seq[CanAttachTile] = p(TilesLocated(location)).sortBy(_.tileParams.hartId)
+ 
+   /** The actual list of instantiated tiles in this subsystem. */
+-  val tile_prci_domains: Seq[TilePRCIDomain[_]] = tileAttachParams.map(_.instantiate(p))
++  val tile_prci_domains: Seq[TilePRCIDomain[_]] = tileAttachParams.map(_.instantiate(p)) // instantiate the tile here
+   val tiles: Seq[BaseTile] = tile_prci_domains.map(_.tile.asInstanceOf[BaseTile])
+ 
+   // Helper functions for accessing certain parameters that are popular to refer to in subsystem code
+@@ -394,6 +395,7 @@ trait HasTiles extends InstantiatesTiles with HasCoreMonitorBundles with Default
+   implicit val p: Parameters
+ 
+   // connect all the tiles to interconnect attachment points made available in this subsystem context
++  // we connect all system hierarchy here
+   tileAttachParams.zip(tile_prci_domains).foreach { case (params, td) =>
+     params.connect(td.asInstanceOf[TilePRCIDomain[params.TileType]], this.asInstanceOf[params.TileContextType])
+   }
+diff --git a/src/main/scala/subsystem/RocketSubsystem.scala b/src/main/scala/subsystem/RocketSubsystem.scala
+index 313c38136..7e48e1add 100644
+--- a/src/main/scala/subsystem/RocketSubsystem.scala
++++ b/src/main/scala/subsystem/RocketSubsystem.scala
+@@ -35,6 +35,10 @@ case object RocketTilesKey extends Field[Seq[RocketTileParams]](Nil)
+ case object RocketCrossingKey extends Field[Seq[RocketCrossingParams]](List(RocketCrossingParams()))
+ 
+ trait HasRocketTiles extends HasTiles { this: BaseSubsystem =>
++  // this line actullay do a lot of things include to init the
++  // tile from config, balabala
++  // tiles is from InstantiatesTiles which is the HasTiles trait
++  // to get the tiles, we need firstly init it, balabala
+   val rocketTiles = tiles.collect { case r: RocketTile => r }
+ 
+   def coreMonitorBundles = (rocketTiles map { t =>
+@@ -42,9 +46,14 @@ trait HasRocketTiles extends HasTiles { this: BaseSubsystem =>
+   }).toList
+ }
+ 
++// BaseSubsystem is the bus architecture of the chip
++// HasRocketTiles is just the tile which connect to the bus
++// combine both to create the basic of CPU
+ class RocketSubsystem(implicit p: Parameters) extends BaseSubsystem with HasRocketTiles {
++  // this statement is redundant if the ExampleRocketSystem already override it
+   override lazy val module = new RocketSubsystemModuleImp(this)
+ }
+ 
++// debug module is connect to HasTilesModuleImp
+ class RocketSubsystemModuleImp[+L <: RocketSubsystem](_outer: L) extends BaseSubsystemModuleImp(_outer)
+     with HasTilesModuleImp
+diff --git a/src/main/scala/system/Configs.scala b/src/main/scala/system/Configs.scala
+index 6f9602820..edfe5ba76 100644
+--- a/src/main/scala/system/Configs.scala
++++ b/src/main/scala/system/Configs.scala
+@@ -14,7 +14,8 @@ class WithDebugAPB extends freechips.rocketchip.subsystem.WithDebugAPB
+ class BaseConfig extends Config(
+   new WithDefaultMemPort() ++
+   new WithDefaultMMIOPort() ++
+-  new WithDefaultSlavePort() ++
++  //new WithDefaultSlavePort() ++
++  new WithJtagDTMSystem() ++
+   new WithTimebase(BigInt(1000000)) ++ // 1 MHz
+   new WithDTS("freechips,rocketchip-unknown", Nil) ++
+   new WithNExtTopInterrupts(2) ++
+diff --git a/src/main/scala/system/ExampleRocketSystem.scala b/src/main/scala/system/ExampleRocketSystem.scala
+index 7892f773c..de583aefc 100644
+--- a/src/main/scala/system/ExampleRocketSystem.scala
++++ b/src/main/scala/system/ExampleRocketSystem.scala
+@@ -7,6 +7,7 @@ import freechips.rocketchip.subsystem._
+ import freechips.rocketchip.devices.tilelink._
+ import freechips.rocketchip.util.DontTouch
+ 
++// parameters is actually config by the command line config
+ /** Example Top with periphery devices and ports, and a Rocket subsystem */
+ class ExampleRocketSystem(implicit p: Parameters) extends RocketSubsystem
+     with HasAsyncExtInterrupts
+@@ -19,9 +20,11 @@ class ExampleRocketSystem(implicit p: Parameters) extends RocketSubsystem
+   val bootROM  = p(BootROMLocated(location)).map { BootROM.attach(_, this, CBUS) }
+   val maskROMs = p(MaskROMLocated(location)).map { MaskROM.attach(_, this, CBUS) }
+ 
++  // this module is inherit from LazyModule which has been override through the hierarchy classes
+   override lazy val module = new ExampleRocketSystemModuleImp(this)
+ }
+ 
++// RocketSubsystemModuleImp is actually a child of LazyModuleImp which has the instantiate to gerenrate code
+ class ExampleRocketSystemModuleImp[+L <: ExampleRocketSystem](_outer: L) extends RocketSubsystemModuleImp(_outer)
+     with HasRTCModuleImp
+     with HasExtInterruptsModuleImp
+diff --git a/src/main/scala/system/RocketChipStageGenerator.scala b/src/main/scala/system/RocketChipStageGenerator.scala
+index a85edada3..96d3ea3e7 100644
+--- a/src/main/scala/system/RocketChipStageGenerator.scala
++++ b/src/main/scala/system/RocketChipStageGenerator.scala
+@@ -27,6 +27,8 @@ private[freechips] final class RocketChiselStage extends ChiselStage {
+ 
+ class RocketChipStage extends Stage with PreservesAll[Phase] {
+ 
++  // the rocketchip top and config is pass through RocketChipCli
++  // with some machanism the class is been create than, go through the normal chisel step
+   override val shell = new Shell("rocket-chip") with RocketChipCli with ChiselCli with FirrtlCli
+   val targets: Seq[PhaseDependency] = Seq(
+     Dependency[freechips.rocketchip.stage.phases.Checks],
+@@ -39,6 +41,10 @@ class RocketChipStage extends Stage with PreservesAll[Phase] {
+     Dependency[freechips.rocketchip.stage.phases.GenerateArtefacts]
+   )
+ 
++  // in normal sequence which generate RTL instead of rocket chip
++  // the Driver class in chisel3 will use this class PhaseManager also
++  // and also the transform, which is transfor the chisel to RTL
++  // App
+   private val pm = new PhaseManager(targets)
+ 
+   override def run(annotations: AnnotationSeq): AnnotationSeq = pm.transform(annotations)
+diff --git a/src/main/scala/tile/FPU.scala b/src/main/scala/tile/FPU.scala
+index 179a47e29..7497b2441 100644
+--- a/src/main/scala/tile/FPU.scala
++++ b/src/main/scala/tile/FPU.scala
+@@ -681,7 +681,7 @@ class FPU(cfg: FPUParams)(implicit p: Parameters) extends FPUModule()(p) {
+   val io = new FPUIO
+ 
+   val useClockGating = coreParams match {
+-    case r: RocketCoreParams => r.clockGate
++    case r: RocketCoreParams => r.clockGate // care about the power
+     case _ => false
+   }
+   val clock_en_reg = Reg(Bool())
+diff --git a/src/main/scala/tile/LazyRoCC.scala b/src/main/scala/tile/LazyRoCC.scala
+index 5c7c484a3..05acb631d 100644
+--- a/src/main/scala/tile/LazyRoCC.scala
++++ b/src/main/scala/tile/LazyRoCC.scala
+@@ -72,8 +72,10 @@ class LazyRoCCModuleImp(outer: LazyRoCC) extends LazyModuleImp(outer) {
+ /** Mixins for including RoCC **/
+ 
+ trait HasLazyRoCC extends CanHavePTW { this: BaseTile =>
++  // rocc-base accelerator is mapping here
+   val roccs = p(BuildRoCC).map(_(p))
+ 
++  // connect the ROCC
+   roccs.map(_.atlNode).foreach { atl => tlMasterXbar.node :=* atl }
+   roccs.map(_.tlNode).foreach { tl => tlOtherMastersNode :=* tl }
+ 
+diff --git a/src/main/scala/tile/RocketTile.scala b/src/main/scala/tile/RocketTile.scala
+index c1506c2ef..0276ae399 100644
+--- a/src/main/scala/tile/RocketTile.scala
++++ b/src/main/scala/tile/RocketTile.scala
+@@ -29,41 +29,45 @@ case class RocketTileParams(
+     ) extends InstantiableTileParams[RocketTile] {
+   require(icache.isDefined)
+   require(dcache.isDefined)
++  // in parameter, we create the RocketTile
+   def instantiate(crossing: TileCrossingParamsLike, lookup: LookupByHartIdImpl)(implicit p: Parameters): RocketTile = {
+     new RocketTile(this, crossing, lookup)
+   }
+ }
+ 
++// the CPU instead is from here
+ class RocketTile private(
+       val rocketParams: RocketTileParams,
+       crossing: ClockCrossingType,
+       lookup: LookupByHartIdImpl,
+       q: Parameters)
+     extends BaseTile(rocketParams, crossing, lookup, q)
+-    with SinksExternalInterrupts
+-    with SourcesExternalNotifications
++    with SinksExternalInterrupts // into the tile interrupt
++    with SourcesExternalNotifications // output the status(also call notification)
+     with HasLazyRoCC  // implies CanHaveSharedFPU with CanHavePTW with HasHellaCache
+-    with HasHellaCache
+-    with HasICacheFrontend
++    with HasHellaCache // DCache
++    with HasICacheFrontend // ICache
+ {
+   // Private constructor ensures altered LazyModule.p is used implicitly
+   def this(params: RocketTileParams, crossing: TileCrossingParamsLike, lookup: LookupByHartIdImpl)(implicit p: Parameters) =
+     this(params, crossing.crossingType, lookup, p)
+ 
+   val intOutwardNode = IntIdentityNode()
+-  val slaveNode = TLIdentityNode()
++  val slaveNode = TLIdentityNode() // there are a slaveNode also in BaseTile, init here
+   val masterNode = visibilityNode
+ 
+   override val logicalTreeNode = new RocketLogicalTreeNode(this, p(XLen), pgLevels)
+ 
++  // dtim is almost alias to dcache
+   val dtim_adapter = tileParams.dcache.flatMap { d => d.scratch.map { s =>
+     LazyModule(new ScratchpadSlavePort(AddressSet.misaligned(s, d.dataScratchpadBytes), lazyCoreParamsView.coreDataBytes, tileParams.core.useAtomics && !tileParams.core.useAtomicsOnlyForIO))
+   }}
++  // dtim for (Data Tightly Integrated Memory)
+   dtim_adapter.foreach(lm => connectTLSlave(lm.node, lm.node.portParams.head.beatBytes))
+ 
+   val bus_error_unit = rocketParams.beuAddr map { a =>
+     val beu = LazyModule(new BusErrorUnit(new L1BusErrors, BusErrorUnitParams(a), logicalTreeNode))
+-    intOutwardNode := beu.intNode
++    intOutwardNode := beu.intNode // connect outside port of the beu
+     connectTLSlave(beu.node, xBytes)
+     beu
+   }
+@@ -76,7 +80,7 @@ class RocketTile private(
+   tile_master_blocker.foreach(lm => connectTLSlave(lm.controlNode, xBytes))
+ 
+   // TODO: this doesn't block other masters, e.g. RoCCs
+-  tlOtherMastersNode := tile_master_blocker.map { _.node := tlMasterXbar.node } getOrElse { tlMasterXbar.node }
++  tlOtherMastersNode := tile_master_blocker.map { _.node := tlMasterXbar.node } getOrElse { tlMasterXbar.node } // connect this blocks to xbar
+   masterNode :=* tlOtherMastersNode
+   DisableMonitors { implicit p => tlSlaveXbar.node :*= slaveNode }
+ 
+@@ -103,6 +107,9 @@ class RocketTile private(
+     Resource(cpuDevice, "reg").bind(ResourceAddress(staticIdForMetadataUseOnly))
+   }
+ 
++  // FIXME
++  // in this level, the module is just tile without cache
++  // something, cache is not nessesary
+   override lazy val module = new RocketTileModuleImp(this)
+ 
+   override def makeMasterBoundaryBuffers(crossing: ClockCrossingType)(implicit p: Parameters) = crossing match {
+@@ -120,7 +127,7 @@ class RocketTile private(
+   }
+ 
+   val dCacheLogicalTreeNode = new DCacheLogicalTreeNode(dcache, dtim_adapter.map(_.device), rocketParams.dcache.get)
+-  LogicalModuleTree.add(logicalTreeNode, iCacheLogicalTreeNode)
++  LogicalModuleTree.add(logicalTreeNode, iCacheLogicalTreeNode) // iCacheLogicalTreeNode from frontend trait
+   LogicalModuleTree.add(logicalTreeNode, dCacheLogicalTreeNode)
+ 
+   if (rocketParams.core.useVM) {
+@@ -129,6 +136,9 @@ class RocketTile private(
+   }
+ }
+ 
++// "outer" is just like the term "wrapper" in verilog
++// "moduleimp" and "module" seperate the legacy module in verilog with 2 parts
++// we use a lot of outer parameters here
+ class RocketTileModuleImp(outer: RocketTile) extends BaseTileModuleImp(outer)
+     with HasFpuOpt
+     with HasLazyRoCCModule
+@@ -174,11 +184,15 @@ class RocketTileModuleImp(outer: RocketTile) extends BaseTileModuleImp(outer)
+     s"core hartid wire (${core.io.hartid.getWidth}b) truncates external hartid wire (${outer.hartIdSinkNode.bundle.getWidth}b)")
+ 
+   // Connect the core pipeline to other intra-tile modules
+-  outer.frontend.module.io.cpu <> core.io.imem
++  outer.frontend.module.io.cpu <> core.io.imem // connect the IQ output to the CPU, IQ output is in io.cpu
+   dcachePorts += core.io.dmem // TODO outer.dcachePorts += () => module.core.io.dmem ??
+   fpuOpt foreach { fpu => core.io.fpu <> fpu.io }
+   core.io.ptw <> ptw.io.dpath
+ 
++  // see this comment!!!!!!!!!!!!!!!!
++  // this is just the comment we try to find many times
++  // interior for hardware implement
++  // outier for hardware connection
+   // Connect the coprocessor interfaces
+   if (outer.roccs.size > 0) {
+     cmdRouter.get.io.in <> core.io.rocc.cmd

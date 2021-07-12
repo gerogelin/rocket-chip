@@ -1,0 +1,161 @@
+diff --git a/src/main/scala/devices/debug/BSCAN.scala b/src/main/scala/devices/debug/BSCAN.scala
+new file mode 100644
+index 000000000..26713409f
+--- /dev/null
++++ b/src/main/scala/devices/debug/BSCAN.scala
+@@ -0,0 +1,81 @@
++
++package freechips.rocketchip.devices.debug
++
++import chisel3._
++import chisel3.util._
++import chisel3.experimental.chiselName
++
++import freechips.rocketchip.jtag._
++
++class BSCANExtendIO extends Bundle {
++  val rst = Input(Reset())
++}
++
++class BSCANIO extends Bundle {
++  val CAPTURE = Output(Bool())
++  val DRCK = Output(Bool())
++  val RESET = Output(Bool())
++  val RUNTEST = Output(Bool())
++  val SEL = Output(Bool())
++  val SHIFT = Output(Bool())
++  val TCK = Output(Clock())
++  val TDI = Output(Bool())
++  val TMS = Output(Bool())
++  val UPDATE = Output(Bool())
++  val TDO = Input(Bool())
++}
++
++/* JTAG state machine Xilinx version */
++// BSCANE2: Boundary-Scan User Instruction
++//          Artix-7
++// Xilinx HDL Language Template, version 2015.4
++
++class BSCANE2(chain: Int) extends BlackBox(Map("DISABLE_JTAG" -> StringParam("FALSE"), "JTAG_CHAIN" -> IntParam(chain))) {
++  val io = IO(new BSCANIO())
++}
++
++
++class XilinxBSCAN(debugAddrBits: Int, debugIdleCycles: Int)(implicit val p: Parameters) extends RawModule {
++  val io = IO(new Bundle {
++    val dmi = new DMIIO()(p)
++    val TCK = Output(new Clock())
++  })
++
++  val dmiInfoChain = new BSCANE2(0x3) // for dmi status
++  val dmiAccessChain = new BSCANE2(0x4) // for dmi access
++  // need to convert the user4 to dmi IO interface
++
++  //--------------------------------------------------------
++  // Debug Access Support
++
++  // Busy Register. We become busy when we first try to send a request.
++  // We stop being busy when we accept a response.
++
++  when (io.dmi.req.valid) {
++    busyReg := true.B
++  }
++  when (io.dmi.resp.fire()) {
++    busyReg := false.B
++  }
++
++  // We are busy during a given CAPTURE
++  // if we haven't received a valid response yet or if we
++  // were busy last time without a reset.
++  // busyReg will still be set when we check it,
++  // so the logic for checking busy looks ahead.
++  busy := (busyReg & !io.dmi.resp.valid) | stickyBusyReg;
++
++  val dtmInfo = Wire(new DTMInfo)
++  val dmiStatus = Wire(UInt(2.W))
++
++  dmiStatus := Cat(stickyNonzeroRespReg, stickyNonzeroRespReg | stickyBusyReg)
++  dtmInfo.debugVersion  := 1.U // This implements version 1 of the spec.
++  dtmInfo.debugAddrBits := debugAddrBits.U
++  dtmInfo.dmiStatus     := dmiStatus
++  dtmInfo.dmiIdleCycles := debugIdleCycles.U
++  dtmInfo.reserved0     := 0.U
++  dtmInfo.dmireset      := false.B // This is write-only
++  dtmInfo.reserved1     := 0.U
++
++
++}
+diff --git a/src/main/scala/devices/debug/Debug.scala b/src/main/scala/devices/debug/Debug.scala
+index 52377f094..cadd4a0e1 100755
+--- a/src/main/scala/devices/debug/Debug.scala
++++ b/src/main/scala/devices/debug/Debug.scala
+@@ -1815,6 +1815,7 @@ class TLDebugModule(beatBytes: Int)(implicit p: Parameters) extends LazyModule {
+           (if (p(ExportDebug).jtag) Seq(ResourceString("jtag")) else Seq()) ++
+           (if (p(ExportDebug).cjtag) Seq(ResourceString("cjtag")) else Seq()) ++
+           (if (p(ExportDebug).dmi) Seq(ResourceString("dmi")) else Seq())))
++          (if (p(ExportDebug).bscan) Seq(ResourceString("bscan")) else Seq())))
+       Description(name, mapping ++ attach)
+     }
+   }
+diff --git a/src/main/scala/devices/debug/Periphery.scala b/src/main/scala/devices/debug/Periphery.scala
+index da2e3819f..0ac02d35b 100644
+--- a/src/main/scala/devices/debug/Periphery.scala
++++ b/src/main/scala/devices/debug/Periphery.scala
+@@ -21,6 +21,7 @@ case object DMI extends DebugExportProtocol
+ case object JTAG extends DebugExportProtocol
+ case object CJTAG extends DebugExportProtocol
+ case object APB extends DebugExportProtocol
++case object BSCAN extends DebugExportProtocol
+ 
+ /** Options for possible debug interfaces */
+ case class DebugAttachParams(
+@@ -33,6 +34,7 @@ case class DebugAttachParams(
+   def jtag  = protocols.contains(JTAG)
+   def cjtag = protocols.contains(CJTAG)
+   def apb   = protocols.contains(APB)
++  def bscan = protocols.contains(BSCAN)
+ }
+ 
+ case object ExportDebug extends Field(DebugAttachParams())
+@@ -47,6 +49,7 @@ class DebugIO(implicit val p: Parameters) extends Bundle {
+   val reset = Input(Reset())
+   val clockeddmi = p(ExportDebug).dmi.option(Flipped(new ClockedDMIIO()))
+   val systemjtag = p(ExportDebug).jtag.option(new SystemJTAGIO)
++  val bscan = p(ExportDebug).bscan.option(new BSCAN())
+   val apb = p(ExportDebug).apb.option(Flipped(new ClockedAPBBundle(APBBundleParameters(addrBits=12, dataBits=32))))
+   //------------------------------
+   val ndreset    = Output(Bool())
+@@ -171,6 +174,18 @@ trait HasPeripheryDebugModuleImp extends LazyModuleImp {
+     }
+     dtm
+   }
++
++  val bscan = debug.flatMap(_.bscan.map(instantiateXilinBSCAN(_)))
++
++  def instantiateXilinBSCAN(extend: BSCANExtendIO): XilinxBSCAN = {
++    val bscan = Module(new XilinxBSCAN())
++    outer.debugOpt.map { outerdebug =>
++      outerdebug.module.io.dmi.get.dmi <> bscan.io.dmi
++      outerdebug.module.io.dmi.get.dmiClock := bscan.io.TCK
++      outerdebug.module.io.dmi.get.dmiReset := extend.rst
++    }
++    bscan
++  }
+ }
+ 
+ class SimDTM(implicit p: Parameters) extends BlackBox with HasBlackBoxResource {
+diff --git a/src/main/scala/subsystem/Configs.scala b/src/main/scala/subsystem/Configs.scala
+index e7d4c626c..8f8b2a800 100644
+--- a/src/main/scala/subsystem/Configs.scala
++++ b/src/main/scala/subsystem/Configs.scala
+@@ -348,6 +348,10 @@ class WithJtagDTM extends Config ((site, here, up) => {
+   case ExportDebug => up(ExportDebug, site).copy(protocols = Set(JTAG))
+ })
+ 
++class WithXilinxBSCAN extends Config ((site, here, up) => {
++  case ExportDebug => up(ExportDebug, site).copy(protocols = Set(BSCANE2))
++})
++
+ class WithDebugAPB extends Config ((site, here, up) => {
+   case ExportDebug => up(ExportDebug, site).copy(protocols = Set(APB))
+ })

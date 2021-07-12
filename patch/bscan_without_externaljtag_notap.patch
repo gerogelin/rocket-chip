@@ -1,0 +1,90 @@
+diff --git a/src/main/scala/devices/debug/DebugTransport.scala b/src/main/scala/devices/debug/DebugTransport.scala
+index fc4c501e..17646e1b 100755
+--- a/src/main/scala/devices/debug/DebugTransport.scala
++++ b/src/main/scala/devices/debug/DebugTransport.scala
+@@ -33,9 +33,15 @@ class JtagDTMKeyDefault extends JtagDTMConfig(
+   debugIdleCycles = 5) // Reasonable guess for synchronization.
+ 
+ object dtmJTAGAddrs {
++  /*
+   def IDCODE       = 0x1
+   def DTM_INFO     = 0x10
+   def DMI_ACCESS = 0x11
++Xilinx available user chain codes are limited, so we hack it here, software needs changing too.
++  */
++  def IDCODE     = 0x9
++  def DTM_INFO   = 0x22
++  def DMI_ACCESS = 0x23
+ }
+ 
+ class DMIAccessUpdate(addrBits: Int) extends Bundle {
+@@ -80,18 +86,23 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
+   (implicit val p: Parameters) extends RawModule  {
+ 
+   val io = IO(new Bundle {
+-    val jtag_clock = Input(Clock())
++    //val jtag_clock = Input(Clock())
++    val jtag_clock = Output(Clock())
+     val jtag_reset = Input(Reset()) // This is internally converted to AsyncReset.
+                                     // We'd prefer to call this AsyncReset, but that's a fairly
+                                     // invasive API change.
+     val dmi = new DMIIO()(p)
+-    val jtag = Flipped(new JTAGIO(hasTRSTn = false)) // TODO: re-use SystemJTAGIO here?
++    //val jtag = Flipped(new JTAGIO(hasTRSTn = false)) // TODO: re-use SystemJTAGIO here?
+     val jtag_mfr_id = Input(UInt(11.W))
+     val jtag_part_number = Input(UInt(16.W))
+     val jtag_version = Input(UInt(4.W))
+   })
+   val rf_reset = IO(Input(Reset()))    // RF transform
+ 
++  // Xilinx requires an IR length of 6, because of all the other configuration functions etc.
++  val fpgaTap = Module(new JtagTapControllerFPGA(irLength = 6))  // (was 5 for official Rocket source code)
++  io.jtag_clock := fpgaTap.io.jtag_clock.get
++
+   withClockAndReset(io.jtag_clock, io.jtag_reset.asAsyncReset) {
+ 
+   //--------------------------------------------------------
+@@ -261,11 +272,12 @@ class DebugTransportModuleJTAG(debugAddrBits: Int, c: JtagDTMConfig)
+     instructions = Map(
+       dtmJTAGAddrs.DMI_ACCESS -> dmiAccessChain,
+       dtmJTAGAddrs.DTM_INFO   -> dtmInfoChain),
+-    icode = Some(dtmJTAGAddrs.IDCODE)
++    icode = Some(dtmJTAGAddrs.IDCODE),
++    fpgaTap
+   )
+ 
+   tapIO.idcode.get := idcode
+-  tapIO.jtag <> io.jtag
++  //tapIO.jtag <> io.jtag
+ 
+   tapIO.control.jtag_reset := io.jtag_reset.asAsyncReset
+ 
+diff --git a/src/main/scala/devices/debug/Periphery.scala b/src/main/scala/devices/debug/Periphery.scala
+index b66b9784..6c7f3289 100755
+--- a/src/main/scala/devices/debug/Periphery.scala
++++ b/src/main/scala/devices/debug/Periphery.scala
+@@ -154,11 +154,11 @@ trait HasPeripheryDebugModuleImp extends LazyModuleImp {
+   def instantiateJtagDTM(sj: SystemJTAGIO): DebugTransportModuleJTAG = {
+ 
+     val dtm = Module(new DebugTransportModuleJTAG(p(DebugModuleKey).get.nDMIAddrSize, p(JtagDTMKey)))
+-    dtm.io.jtag <> sj.jtag
++    //dtm.io.jtag <> sj.jtag
+ 
+-    debug.map(_.disableDebug.foreach { x => dtm.io.jtag.TMS := sj.jtag.TMS | x })  // force TMS high when debug is disabled
++    //debug.map(_.disableDebug.foreach { x => dtm.io.jtag.TMS := sj.jtag.TMS | x })  // force TMS high when debug is disabled
+ 
+-    dtm.io.jtag_clock  := sj.jtag.TCK
++    //dtm.io.jtag_clock  := sj.jtag.TCK
+     dtm.io.jtag_reset  := sj.reset
+     dtm.io.jtag_mfr_id := sj.mfr_id
+     dtm.io.jtag_part_number := sj.part_number
+@@ -167,7 +167,7 @@ trait HasPeripheryDebugModuleImp extends LazyModuleImp {
+ 
+     outer.debugOpt.map { outerdebug => 
+       outerdebug.module.io.dmi.get.dmi <> dtm.io.dmi
+-      outerdebug.module.io.dmi.get.dmiClock := sj.jtag.TCK
++      outerdebug.module.io.dmi.get.dmiClock := dtm.io.jtag_clock
+       outerdebug.module.io.dmi.get.dmiReset := sj.reset
+     }
+     dtm
+
